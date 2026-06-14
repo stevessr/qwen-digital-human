@@ -250,23 +250,28 @@ def _filter_full_text(text: str) -> str:
 
 class LlmService:
     def __init__(self, settings: Settings) -> None:
+        self.provider = self._build_provider(settings)
+
+    def configure(self, settings: Settings) -> None:
+        self.provider = self._build_provider(settings)
+
+    def _build_provider(self, settings: Settings) -> LlmProvider:
         if settings.llm_provider == "openai_compatible":
             if not settings.llm_base_url:
                 raise ValueError("LLM_PROVIDER=openai_compatible 需要设置 LLM_BASE_URL")
-            self.provider: LlmProvider = OpenAICompatibleProvider(
+            return OpenAICompatibleProvider(
                 base_url=settings.llm_base_url,
                 api_key=settings.llm_api_key,
                 model=settings.llm_model,
                 timeout=settings.llm_timeout_seconds,
             )
-        elif settings.llm_provider == "stub":
-            self.provider = StubProvider()
-        else:
-            self.provider = OllamaProvider(
-                base_url=settings.ollama_base_url,
-                model=settings.ollama_model,
-                timeout=settings.llm_timeout_seconds,
-            )
+        if settings.llm_provider == "stub":
+            return StubProvider()
+        return OllamaProvider(
+            base_url=settings.ollama_base_url,
+            model=settings.ollama_model,
+            timeout=settings.llm_timeout_seconds,
+        )
 
     async def generate(
         self,

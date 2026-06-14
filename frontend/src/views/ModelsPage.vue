@@ -1,8 +1,56 @@
 <script setup lang="ts">
+import { computed, shallowRef, watch } from 'vue'
 import { RUNTIME_RESOURCES } from '@/constants/config'
 import { useModelManagement, type ManagedModelInfo } from '@/composables/useModelManagement'
 
-const { models, isLoading, loadModels } = useModelManagement()
+const {
+  models,
+  isLoading,
+  isSelecting,
+  loadError,
+  selectError,
+  selectedModel,
+  ollamaOptions,
+  loadModels,
+  selectModel,
+} = useModelManagement()
+
+const modelSelectValue = shallowRef('')
+
+watch(
+  selectedModel,
+  (model) => {
+    modelSelectValue.value = model?.name || ''
+  },
+  { immediate: true },
+)
+
+const selectOptions = computed(() => (
+  ollamaOptions.value.map(option => ({
+    value: option.name,
+    label: [
+      option.name,
+      option.size && option.size !== '由 Ollama 管理' ? option.size : '',
+      option.parameter_size || '',
+      option.quantization_level || '',
+    ].filter(Boolean).join(' · '),
+  }))
+))
+
+const hasOllamaBackend = computed(() => (
+  models.value.some(model => model.managed_by === 'ollama')
+))
+
+const ollamaServiceUnavailable = computed(() => (
+  hasOllamaBackend.value && selectedModel.value?.service_available === false
+))
+
+const canApplySelection = computed(() => (
+  Boolean(modelSelectValue.value)
+  && !isLoading.value
+  && !isSelecting.value
+  && modelSelectValue.value !== selectedModel.value?.name
+))
 
 const openFile = (path: string) => {
   window.open(path, '_blank', 'noopener,noreferrer')
@@ -19,6 +67,15 @@ const providerLabel = (model: ManagedModelInfo): string => {
   if (model.managed_by === 'browser') return '浏览器'
   if (model.provider) return model.provider
   return '外部推理服务'
+}
+
+const handleSelectModel = async () => {
+  await selectModel(modelSelectValue.value)
+}
+
+const selectFromCard = async (name: string) => {
+  modelSelectValue.value = name
+  await handleSelectModel()
 }
 </script>
 
@@ -41,6 +98,23 @@ const providerLabel = (model: ManagedModelInfo): string => {
         </RouterLink>
       </ASpace>
     </header>
+
+    <AAlert
+      v-if="loadError"
+      class="page-alert"
+      type="error"
+      show-icon
+      message="无法读取后端模型状态"
+      :description="loadError"
+    />
+    <AAlert
+      v-if="selectError"
+      class="page-alert"
+      type="error"
+      show-icon
+      message="模型切换失败"
+      :description="selectError"
+    />
 
     <section class="runtime-section">
       <h2>浏览器能力与前端资源</h2>
@@ -80,6 +154,53 @@ const providerLabel = (model: ManagedModelInfo): string => {
         这里展示后端当前连接的本地 Ollama 服务状态。模型下载、加载与推理由 Ollama 进程负责，不再由后端管理 GGUF/MNN 文件。
       </p>
 
+      <div class="selector-card">
+        <div class="selector-copy">
+          <h3>聊天后端模型选择</h3>
+          <p>
+            当前模型：
+            <strong>{{ selectedModel?.name || '未配置' }}</strong>
+            <ATag v-if="selectedModel?.selected" color="green">当前生效</ATag>
+          </p>
+          <p class="selector-hint">
+            这里直接读取本地 Ollama 的 <code>/api/tags</code>，切换后新的聊天和地图讲解请求会立即使用所选模型。
+          </p>
+        </div>
+        <ASpace class="selector-controls" wrap>
+          <ASelect
+            v-model:value="modelSelectValue"
+            class="model-select"
+            :options="selectOptions"
+            :disabled="ollamaOptions.length === 0 || isLoading || isSelecting"
+            placeholder="选择本地 Ollama 模型"
+          />
+          <AButton
+            type="primary"
+            :loading="isSelecting"
+            :disabled="!canApplySelection"
+            @click="handleSelectModel"
+          >
+            切换为聊天模型
+          </AButton>
+        </ASpace>
+        <AAlert
+          v-if="ollamaServiceUnavailable"
+          class="selector-alert"
+          type="warning"
+          show-icon
+          message="本地 Ollama 后端未连接"
+          description="请先在本机启动 ollama serve，并确认后端可以访问 OLLAMA_BASE_URL（默认 http://127.0.0.1:11434）。"
+        />
+        <AAlert
+          v-else-if="hasOllamaBackend && ollamaOptions.length === 0"
+          class="selector-alert"
+          type="warning"
+          show-icon
+          message="没有可选择的 Ollama 模型"
+          :description="`请先执行 ollama pull ${selectedModel?.name || 'qwen2.5:7b'}，然后点击刷新状态。`"
+        />
+      </div>
+
       <AEmpty v-if="!isLoading && models.length === 0" description="暂无推理服务状态" />
 
       <ACard
@@ -95,14 +216,26 @@ const providerLabel = (model: ManagedModelInfo): string => {
             <div class="meta">
               提供方：{{ providerLabel(model) }} |
               能力：{{ model.capability || 'LLM 推理' }} |
-              服务地址：{{ model.url || '未配置' }}
+              服务地址：{{ model.url || '未配置' }} |
+              大小：{{ model.size || '未知' }}
             </div>
           </div>
 
           <div class="model-actions">
+            <ATag v-if="model.selected" color="green" class="status-tag">
+              当前聊天模型
+            </ATag>
             <ATag :color="serviceStatusColor(model)" class="status-tag">
               {{ serviceStatusText(model) }}
             </ATag>
+            <AButton
+              v-if="model.managed_by === 'ollama' && model.installed && !model.selected"
+              size="small"
+              :loading="isSelecting && modelSelectValue === model.name"
+              @click="selectFromCard(model.name)"
+            >
+              设为聊天模型
+            </AButton>
           </div>
         </div>
       </ACard>
@@ -145,6 +278,11 @@ const providerLabel = (model: ManagedModelInfo): string => {
   margin: 0;
   color: #a9b4c7;
   line-height: 1.5;
+}
+
+.page-alert {
+  max-width: 980px;
+  margin: 0 auto 18px;
 }
 
 .runtime-section {
@@ -206,6 +344,50 @@ const providerLabel = (model: ManagedModelInfo): string => {
 
 .service-desc {
   margin-bottom: 16px;
+}
+
+.selector-card {
+  margin-bottom: 20px;
+  padding: 18px;
+  border: 1px solid #30415f;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #162033 0%, #151922 100%);
+}
+
+.selector-copy h3 {
+  margin: 0 0 8px;
+  color: #fff;
+}
+
+.selector-copy p {
+  margin: 0 0 8px;
+  color: #cbd7ea;
+  line-height: 1.5;
+}
+
+.selector-copy strong {
+  color: #fff;
+}
+
+.selector-copy code {
+  color: #9ed0ff;
+}
+
+.selector-hint {
+  color: #8f9db3 !important;
+  font-size: 0.9em;
+}
+
+.selector-controls {
+  margin-top: 12px;
+}
+
+.model-select {
+  min-width: min(420px, 72vw);
+}
+
+.selector-alert {
+  margin-top: 14px;
 }
 
 .model-card {

@@ -116,6 +116,17 @@ class MapSearchResponse(CompatModel):
     results: list[MapPlace]
 
 
+class OllamaModelOption(CompatModel):
+    name: str
+    size: str = ""
+    size_bytes: int | None = None
+    digest: str = ""
+    modified_at: str = ""
+    family: str = ""
+    parameter_size: str = ""
+    quantization_level: str = ""
+
+
 class ModelInfo(CompatModel):
     name: str
     description: str
@@ -130,6 +141,10 @@ class ModelInfo(CompatModel):
     downloadable: bool = False
     verifiable: bool = False
     deletable: bool = False
+    selected: bool = False
+    service_available: bool | None = None
+    status_message: str | None = None
+    options: list[OllamaModelOption] = Field(default_factory=list)
 
 
 class DownloadRequest(CompatModel):
@@ -140,6 +155,10 @@ class DownloadRequest(CompatModel):
 class ModelActionRequest(CompatModel):
     name: str
     expected_sha256: str | None = None
+
+
+class ModelSelectRequest(CompatModel):
+    name: str
 
 
 class StatusResponse(CompatModel):

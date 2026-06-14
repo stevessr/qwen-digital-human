@@ -3,7 +3,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Request, status
 from fastapi.responses import JSONResponse
 
-from ..schemas import DownloadRequest, ModelActionRequest
+from ..model_manager import OllamaModelNotFound, OllamaServiceUnavailable
+from ..schemas import DownloadRequest, ModelActionRequest, ModelSelectRequest
 from ..state import get_app_state
 
 router = APIRouter()
@@ -19,6 +20,31 @@ def _unsupported(message: str) -> JSONResponse:
 async def model_status_handler(request: Request):
     state = get_app_state(request)
     return await state.model_manager.get_model_library()
+
+
+@router.post("/api/models/select")
+async def model_select_handler(payload: ModelSelectRequest, request: Request):
+    state = get_app_state(request)
+    try:
+        selected = await state.model_manager.select_ollama_model(payload.name)
+    except ValueError as exc:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"status": "error", "message": str(exc)},
+        )
+    except OllamaServiceUnavailable as exc:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"status": "error", "message": str(exc)},
+        )
+    except OllamaModelNotFound as exc:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"status": "error", "message": str(exc)},
+        )
+
+    state.llm.configure(state.settings)
+    return {"status": "success", "message": f"已切换到 {selected.name}", "model": selected}
 
 
 @router.post("/api/models/download")

@@ -1,4 +1,15 @@
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref, shallowRef } from 'vue'
+
+export interface OllamaModelOption {
+  name: string
+  size: string
+  size_bytes?: number | null
+  digest?: string
+  modified_at?: string
+  family?: string
+  parameter_size?: string
+  quantization_level?: string
+}
 
 export interface ManagedModelInfo {
   name: string
@@ -14,10 +25,15 @@ export interface ManagedModelInfo {
   downloadable?: boolean
   verifiable?: boolean
   deletable?: boolean
+  selected?: boolean
+  service_available?: boolean | null
+  status_message?: string | null
+  options?: OllamaModelOption[]
 }
 
 const parseJsonResponse = async <T>(response: Response): Promise<T> => {
-  const data = await response.json() as T
+  const rawText = await response.text()
+  const data = (rawText ? JSON.parse(rawText) : {}) as T
   if (!response.ok) {
     const maybeMessage = data as { message?: string; error?: string }
     throw new Error(maybeMessage.message || maybeMessage.error || `HTTP ${response.status}`)
@@ -25,17 +41,69 @@ const parseJsonResponse = async <T>(response: Response): Promise<T> => {
   return data
 }
 
+const errorMessage = (error: unknown): string => (
+  error instanceof Error ? error.message : String(error || '未知错误')
+)
+
 export function useModelManagement() {
   const models = ref<ManagedModelInfo[]>([])
-  const isLoading = ref(false)
+  const isLoading = shallowRef(false)
+  const isSelecting = shallowRef(false)
+  const loadError = shallowRef('')
+  const selectError = shallowRef('')
+
+  const selectedModel = computed(() => (
+    models.value.find(model => model.selected) || models.value[0] || null
+  ))
+
+  const ollamaOptions = computed<OllamaModelOption[]>(() => {
+    const optionMap = new Map<string, OllamaModelOption>()
+    for (const option of selectedModel.value?.options || []) {
+      if (option.name) optionMap.set(option.name, option)
+    }
+    for (const model of models.value) {
+      if (model.managed_by === 'ollama' && model.installed) {
+        optionMap.set(model.name, {
+          name: model.name,
+          size: model.size,
+          digest: model.expected_sha256,
+        })
+      }
+    }
+    return [...optionMap.values()].sort((left, right) => left.name.localeCompare(right.name))
+  })
 
   const loadModels = async () => {
     isLoading.value = true
+    loadError.value = ''
     try {
       const response = await fetch('/api/models/status')
       models.value = await parseJsonResponse<ManagedModelInfo[]>(response)
+    } catch (error) {
+      loadError.value = errorMessage(error)
     } finally {
       isLoading.value = false
+    }
+  }
+
+  const selectModel = async (name: string) => {
+    const selectedName = name.trim()
+    if (!selectedName) return
+
+    isSelecting.value = true
+    selectError.value = ''
+    try {
+      const response = await fetch('/api/models/select', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: selectedName }),
+      })
+      await parseJsonResponse<{ status: string; message?: string; model?: ManagedModelInfo }>(response)
+      await loadModels()
+    } catch (error) {
+      selectError.value = errorMessage(error)
+    } finally {
+      isSelecting.value = false
     }
   }
 
@@ -46,6 +114,12 @@ export function useModelManagement() {
   return {
     models,
     isLoading,
+    isSelecting,
+    loadError,
+    selectError,
+    selectedModel,
+    ollamaOptions,
     loadModels,
+    selectModel,
   }
 }

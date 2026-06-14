@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useEventListener } from '@vueuse/core'
-import Live2DCanvas from './Live2DCanvas.vue'
+import DigitalHumanAvatar from './DigitalHumanAvatar.vue'
 
 // Draggable position state
 const stage = ref<HTMLElement>()
@@ -102,7 +102,7 @@ useEventListener('resize', () => {
     }"
     @pointerdown="handlePointerDown"
   >
-    <Live2DCanvas />
+    <DigitalHumanAvatar />
   </div>
 </template>
 
@@ -124,10 +124,7 @@ useEventListener('resize', () => {
   cursor: grabbing;
 }
 
-.avatar-stage canvas {
-  width: 100%;
-  height: 100%;
-  display: block;
+.avatar-stage :deep(*) {
   cursor: inherit;
 }
 </style>

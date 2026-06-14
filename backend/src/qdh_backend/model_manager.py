@@ -2,8 +2,16 @@ from __future__ import annotations
 
 import httpx
 
-from .schemas import ModelInfo
+from .schemas import ModelInfo, OllamaModelOption
 from .settings import Settings
+
+
+class OllamaServiceUnavailable(RuntimeError):
+    """Raised when the local Ollama HTTP API cannot be reached."""
+
+
+class OllamaModelNotFound(RuntimeError):
+    """Raised when a requested Ollama model is not installed locally."""
 
 
 class ModelManager:
@@ -15,40 +23,131 @@ class ModelManager:
             return [self._external_api_info()]
         if self.settings.llm_provider == "stub":
             return [self._stub_info()]
-        return [await self._ollama_info()]
+        return await self._ollama_library()
 
-    async def _ollama_info(self) -> ModelInfo:
-        model_name = self.settings.ollama_model
-        service_available = False
-        model_available = False
-        status_note = "Ollama 服务未连接，或尚未拉取指定模型。"
+    async def select_ollama_model(self, name: str) -> ModelInfo:
+        selected_name = name.strip()
+        if not selected_name:
+            raise ValueError("请选择一个 Ollama 模型。")
 
+        service_available, tags, error = await self._fetch_ollama_tags()
+        if not service_available:
+            raise OllamaServiceUnavailable(
+                f"Ollama 服务不可用：{error or '无法连接到本地 Ollama HTTP API'}"
+            )
+
+        options = self._tags_to_options(tags)
+        selected_option = self._find_option(selected_name, options)
+        if not selected_option:
+            available = "、".join(option.name for option in options) or "无"
+            raise OllamaModelNotFound(
+                f"本地 Ollama 未安装模型 {selected_name}。当前可选模型：{available}"
+            )
+
+        self.settings.llm_provider = "ollama"
+        self.settings.ollama_model = selected_option.name
+        self.settings.llm_model = selected_option.name
+        return self._ollama_model_info(
+            option=selected_option,
+            options=options,
+            selected_name=selected_option.name,
+            service_available=True,
+            status_message=f"已切换到本地 Ollama 模型 {selected_option.name}。",
+        )
+
+    async def _ollama_library(self) -> list[ModelInfo]:
+        selected_name = self.settings.ollama_model
+        service_available, tags, error = await self._fetch_ollama_tags()
+        options = self._tags_to_options(tags)
+
+        if not service_available:
+            status_note = (
+                f"Ollama 服务未连接：{error}。请确认已运行 ollama serve。"
+                if error
+                else "Ollama 服务未连接。请确认已运行 ollama serve。"
+            )
+            return [
+                self._configured_ollama_info(
+                    selected_name=selected_name,
+                    options=[],
+                    service_available=False,
+                    status_message=status_note,
+                )
+            ]
+
+        if not options:
+            status_note = (
+                f"Ollama 服务已连接，但未发现本地模型。请运行 ollama pull {selected_name}。"
+            )
+            return [
+                self._configured_ollama_info(
+                    selected_name=selected_name,
+                    options=[],
+                    service_available=True,
+                    status_message=status_note,
+                )
+            ]
+
+        selected_option = self._find_option(selected_name, options)
+        models: list[ModelInfo] = []
+        if selected_option is None:
+            models.append(
+                self._configured_ollama_info(
+                    selected_name=selected_name,
+                    options=options,
+                    service_available=True,
+                    status_message=(
+                        f"Ollama 服务已连接，但未发现当前配置模型 {selected_name}。"
+                        f"请选择下方已安装模型，或运行 ollama pull {selected_name}。"
+                    ),
+                )
+            )
+
+        models.extend(
+            self._ollama_model_info(
+                option=option,
+                options=options,
+                selected_name=selected_name,
+                service_available=True,
+                status_message=(
+                    f"当前聊天后端正在使用 {option.name}。"
+                    if self._model_name_matches(selected_name, option.name)
+                    else "该模型已安装，可切换为当前聊天后端。"
+                ),
+            )
+            for option in options
+        )
+        return models
+
+    async def _fetch_ollama_tags(self) -> tuple[bool, list[dict[str, object]], str | None]:
         try:
             async with httpx.AsyncClient(timeout=1.5) as client:
                 response = await client.get(f"{self.settings.ollama_base_url}/api/tags")
             response.raise_for_status()
-            service_available = True
             data = response.json()
-            names = {
-                str(item.get("name") or item.get("model") or "") for item in data.get("models", [])
-            }
-            model_available = model_name in names
-            if model_available:
-                status_note = "Ollama 服务已连接，指定模型可用。"
-            else:
-                status_note = f"Ollama 服务已连接，但未发现模型 {model_name}。请运行 ollama pull {model_name}。"
-        except Exception:  # noqa: BLE001 - status endpoint must not fail the page
-            pass
+            raw_models = data.get("models", []) if isinstance(data, dict) else []
+            tags = [item for item in raw_models if isinstance(item, dict)]
+            return True, tags, None
+        except Exception as exc:  # noqa: BLE001 - status endpoint must not fail the page
+            return False, [], str(exc)
 
+    def _configured_ollama_info(
+        self,
+        *,
+        selected_name: str,
+        options: list[OllamaModelOption],
+        service_available: bool,
+        status_message: str,
+    ) -> ModelInfo:
         return ModelInfo(
-            name=model_name,
+            name=selected_name,
             description=(
                 "LLM 推理由本地 Ollama 服务提供；后端只调用 Ollama HTTP API，"
-                f"不加载 GGUF/MNN 推理模型。{status_note}"
+                f"不加载 GGUF/MNN 推理模型。{status_message}"
             ),
             url=self.settings.ollama_base_url,
             size="由 Ollama 管理",
-            installed=service_available and model_available,
+            installed=False,
             progress=None,
             expected_sha256="",
             provider="Ollama",
@@ -57,6 +156,53 @@ class ModelManager:
             downloadable=False,
             verifiable=False,
             deletable=False,
+            selected=True,
+            service_available=service_available,
+            status_message=status_message,
+            options=options,
+        )
+
+    def _ollama_model_info(
+        self,
+        *,
+        option: OllamaModelOption,
+        options: list[OllamaModelOption],
+        selected_name: str,
+        service_available: bool,
+        status_message: str,
+    ) -> ModelInfo:
+        selected = self._model_name_matches(selected_name, option.name)
+        detail_parts = [
+            part
+            for part in [
+                option.family,
+                option.parameter_size,
+                option.quantization_level,
+            ]
+            if part
+        ]
+        detail_text = f"（{' / '.join(detail_parts)}）" if detail_parts else ""
+        return ModelInfo(
+            name=option.name,
+            description=(
+                "LLM 推理由本地 Ollama 服务提供；后端只调用 Ollama HTTP API，"
+                f"不加载 GGUF/MNN 推理模型。{status_message}{detail_text}"
+            ),
+            url=self.settings.ollama_base_url,
+            size=option.size or "由 Ollama 管理",
+            installed=True,
+            progress=None,
+            expected_sha256=option.digest,
+            provider="Ollama",
+            capability="LLM 推理",
+            managed_by="ollama",
+            downloadable=False,
+            verifiable=False,
+            deletable=False,
+            selected=selected,
+            service_available=service_available,
+            status_message=status_message,
+            options=options,
         )
 
     def _external_api_info(self) -> ModelInfo:
@@ -75,6 +221,9 @@ class ModelManager:
             downloadable=False,
             verifiable=False,
             deletable=False,
+            selected=True,
+            service_available=configured,
+            status_message="外部 OpenAI-compatible 服务配置已填写。" if configured else "外部服务未配置。",
         )
 
     def _stub_info(self) -> ModelInfo:
@@ -92,6 +241,9 @@ class ModelManager:
             downloadable=False,
             verifiable=False,
             deletable=False,
+            selected=True,
+            service_available=True,
+            status_message="测试 provider 可用。",
         )
 
     async def download_model(self, name: str, url: str) -> None:
@@ -107,3 +259,70 @@ class ModelManager:
     async def verify_model(self, name: str, expected_sha256: str) -> bool:
         del name, expected_sha256
         return False
+
+    def _tags_to_options(self, tags: list[dict[str, object]]) -> list[OllamaModelOption]:
+        options: list[OllamaModelOption] = []
+        for item in tags:
+            name = str(item.get("name") or item.get("model") or "").strip()
+            if not name:
+                continue
+            details = item.get("details")
+            details_map = details if isinstance(details, dict) else {}
+            size_bytes = self._safe_int(item.get("size"))
+            options.append(
+                OllamaModelOption(
+                    name=name,
+                    size=_format_size(size_bytes),
+                    size_bytes=size_bytes,
+                    digest=str(item.get("digest") or ""),
+                    modified_at=str(item.get("modified_at") or ""),
+                    family=str(details_map.get("family") or ""),
+                    parameter_size=str(details_map.get("parameter_size") or ""),
+                    quantization_level=str(details_map.get("quantization_level") or ""),
+                )
+            )
+        return sorted(options, key=lambda option: option.name.lower())
+
+    def _find_option(
+        self, selected_name: str, options: list[OllamaModelOption]
+    ) -> OllamaModelOption | None:
+        for option in options:
+            if self._model_name_matches(selected_name, option.name):
+                return option
+        return None
+
+    @staticmethod
+    def _model_name_matches(configured_name: str, installed_name: str) -> bool:
+        configured = configured_name.strip()
+        installed = installed_name.strip()
+        if configured == installed:
+            return True
+        return ":" not in configured and f"{configured}:latest" == installed
+
+    @staticmethod
+    def _safe_int(value: object) -> int | None:
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            return int(value)
+        if isinstance(value, str):
+            try:
+                return int(value)
+            except ValueError:
+                return None
+        return None
+
+
+def _format_size(size_bytes: int | None) -> str:
+    if not size_bytes or size_bytes <= 0:
+        return "由 Ollama 管理"
+    units = ["B", "KB", "MB", "GB", "TB"]
+    size = float(size_bytes)
+    unit = units[0]
+    for unit in units:
+        if size < 1024 or unit == units[-1]:
+            break
+        size /= 1024
+    return f"{size:.1f} {unit}" if unit != "B" else f"{int(size)} B"

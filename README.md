@@ -15,7 +15,7 @@
 - Pipeline：`POST /api/pipeline`，保持 transcription、LLM reply、avatar render frame 契约。
 - TTS：默认由浏览器 `SpeechSynthesis` 提供；`POST /api/tts` 仅保留兼容静音 WAV，不做模型推理。
 - ASR：默认由浏览器 `SpeechRecognition` / `webkitSpeechRecognition` 提供；`GET /api/ws/asr` 仅保留兼容协议，不做模型推理。
-- 推理服务状态：`/api/models/status` 展示当前 Ollama/OpenAI-compatible LLM 服务状态，不再提供后端模型下载、删除、校验。
+- 推理服务状态：`/api/models/status` 展示当前 Ollama/OpenAI-compatible LLM 服务状态；`/api/models/select` 可在已安装的本地 Ollama 模型之间切换聊天后端。
 - 地图搜索：`POST /api/map/search` 调用 Nominatim。
 - RAG 上下文：`POST /api/context/retrieve` 保留接口和 `top_k=0` 空上下文语义。
 
@@ -32,7 +32,7 @@ ollama serve
 ollama pull qwen2.5:7b
 ```
 
-如需换模型，编辑 `backend/.env` 或设置环境变量：
+如需换模型，可打开 Vue 开发环境的 <http://localhost:5173/models> 在已安装的 Ollama 模型之间切换；如需持久默认值，编辑 `backend/.env` 或设置环境变量：
 
 ```bash
 OLLAMA_MODEL=your-local-model
