@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>地图数字人（本地 Qwen ASR/TTS）</title>
+    <title>地图数字人（Ollama LLM + 浏览器 ASR/TTS）</title>
     <style>
         body { margin: 0; display: flex; height: 100vh; font-family: sans-serif; background-color: #121212; color: #fff; overflow: hidden; }
         #left-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; background: #0a0a0a; position: relative; }
@@ -185,7 +185,7 @@
         <div id="model-manager" style="padding: 10px; border-bottom: 1px solid #333; font-size: 0.8em; display: flex; justify-content: space-between; align-items: center;">
             <div>
                 <strong>Models:</strong> <span id="model-list">Loading...</span>
-                <div style="margin-top: 4px; color: #9aa4b2;">Live2D 头像：Shizuku / Haru 01 / Haru 02（本地资源）｜本地 ASR/TTS：Qwen3-ASR-0.6B / Qwen3-TTS-12Hz-0.6B-CustomVoice（首次会自动下载到本地缓存）｜OpenCV 眼部追踪已移至配置网页</div>
+                <div style="margin-top: 4px; color: #9aa4b2;">LLM 推理：本地 Ollama 服务｜ASR/TTS：浏览器 Web Speech APIs｜Live2D 头像：Shizuku / Haru 01 / Haru 02（本地资源）｜OpenCV 眼部追踪已移至配置网页</div>
             </div>
             <div style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end;">
                 <a href="/config.html" style="color: #007bff; text-decoration: none; border: 1px solid #007bff; padding: 2px 8px; border-radius: 4px;">配置网页</a>

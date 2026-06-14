@@ -8,7 +8,7 @@ qwen-digital-human/
 ├── src/          # Rust 后端旧实现/参考
 ├── frontend/     # Vue3 前端工程
 ├── static/       # 当前同源静态前端
-├── models/       # AI 模型文件
+├── models/       # 旧本地模型缓存（当前后端不再加载推理模型）
 └── Cargo.toml    # Rust 旧后端配置
 ```
 
@@ -40,7 +40,7 @@ uv run uvicorn qdh_backend.main:app --host 127.0.0.1 --port 3000
 Python 后端会同源托管 `static/`，所以可以直接访问：
 
 - 主界面：<http://127.0.0.1:3000/>
-- 模型页：<http://127.0.0.1:3000/models.html>
+- 模型/能力页：<http://127.0.0.1:3000/models.html> 或 Vue 开发环境的 <http://localhost:5173/models>
 - 健康检查：<http://127.0.0.1:3000/health>
 
 ## 3. 可选：Vue 前端开发服务器
@@ -68,12 +68,12 @@ Vite 开发服务器仍可代理 `/api` 到 `http://127.0.0.1:3000`。
 - [ ] `POST /api/chat` 非流式返回 `{ reply }`
 - [ ] `POST /api/chat` 流式响应包含 `X-Stream-Format: qdh-binary-v2`
 - [ ] `POST /api/tts` 返回 `audio/wav`
-- [ ] `GET /api/models/status` 返回模型列表
+- [ ] `GET /api/models/status` 返回 Ollama/OpenAI-compatible LLM 服务状态
 
 ### ⏳ 第一阶段兼容实现
-- [ ] ASR WebSocket 已保协议，尚未接真实识别模型
-- [ ] TTS 当前返回静音 WAV，后续可替换真实 provider
-- [ ] RAG 当前保接口，后续可接 embedding/reranker
+- [ ] ASR 由浏览器 SpeechRecognition / webkitSpeechRecognition 提供，后端不做 ASR 模型推理
+- [ ] TTS 由浏览器 SpeechSynthesis 提供，后端不做 TTS 模型推理
+- [ ] RAG 当前保接口，后续可接外部 embedding/reranker 服务
 
 ## 开发命令
 

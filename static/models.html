@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>Qwen 数字人 - 模型管理控制台</title>
+    <title>Qwen 数字人 - 推理服务与浏览器能力</title>
     <style>
         body { font-family: system-ui, -apple-system, sans-serif; background: #121212; color: #eee; margin: 0; padding: 40px; }
         .container { max-width: 900px; margin: 0 auto; }
@@ -38,23 +38,23 @@
 <body>
     <div class="container">
         <header>
-            <h1>模型库管理</h1>
+            <h1>推理服务与浏览器能力</h1>
             <a href="/" class="nav-link">← 返回主界面</a>
         </header>
 
         <section class="runtime-section">
-            <h2>本地 Qwen 语音模型</h2>
-            <p style="margin: 0 0 16px 0; color: #a9b4c7;">这几个运行时资源由程序自动加载到本地；点击下面按钮可以提前预热或直接查看对应模型文件，避免第一次切换/说话时等待。</p>
+            <h2>浏览器能力与前端资源</h2>
+            <p style="margin: 0 0 16px 0; color: #a9b4c7;">ASR 与 TTS 由浏览器 Web Speech APIs 提供；后端不再加载本地推理模型，只通过本地 Ollama 调用 LLM 推理服务。</p>
             <div class="runtime-grid">
                 <div class="runtime-card">
-                    <h3>Qwen3-ASR</h3>
-                    <p>本地语音识别模型，缓存目录由后端自动管理。</p>
-                    <button class="btn btn-download" onclick="preloadRuntimeModel('asr', this)">预热下载 ASR</button>
+                    <h3>浏览器 ASR</h3>
+                    <p>语音识别由浏览器 SpeechRecognition / webkitSpeechRecognition 提供；无需下载、预热或加载后端 ASR 模型。</p>
+                    <span class="status installed">浏览器提供</span>
                 </div>
                 <div class="runtime-card">
-                    <h3>Qwen3-TTS</h3>
-                    <p>本地语音合成模型，首次使用时会自动拉取到缓存。</p>
-                    <button class="btn btn-download" onclick="preloadRuntimeModel('tts', this)">预热下载 TTS</button>
+                    <h3>浏览器 TTS</h3>
+                    <p>语音合成由浏览器 SpeechSynthesis 提供；无需下载、预热或加载后端 TTS 模型。</p>
+                    <span class="status installed">浏览器提供</span>
                 </div>
                 <div class="runtime-card">
                     <h3>Live2D Shizuku</h3>
@@ -111,24 +111,16 @@
                         <div class="info">
                             <h3>${m.name}</h3>
                             <p>${m.description}</p>
-                            <div class="meta">文件大小: ${m.size} | 状态: ${m.installed ? '已就绪' : (isDownloading ? '下载中' : '缺失')}</div>
+                            <div class="meta">提供方: ${m.provider || m.managed_by || '外部推理服务'} | 能力: ${m.capability || 'LLM 推理'} | 服务地址: ${m.url || '未配置'}</div>
                         </div>
                         <div style="text-align: right;">
                             <div style="margin-bottom: 12px;">
-                                <span class="status ${m.installed ? 'installed' : (isDownloading ? 'downloading' : 'missing')}">
-                                    ${m.installed ? '● 已就绪' : (isDownloading ? `正在下载 ${Math.round(m.progress)}%` : '○ 缺失')}
+                                <span class="status ${m.installed ? 'installed' : 'missing'}">
+                                    ${m.installed ? '● 服务可用' : '○ 服务不可用'}
                                 </span>
                             </div>
-                            <div style="display: flex; justify-content: flex-end;">
-                                ${m.installed ? `
-                                    <button class="btn btn-verify" onclick="verifyModel('${m.name}', '${m.expected_sha256}')">校验</button>
-                                    <button class="btn btn-delete" onclick="deleteModel('${m.name}')">删除</button>
-                                ` : ''}
-                                <button class="btn btn-download" 
-                                        onclick="downloadModel('${m.name}', '${m.url}')"
-                                        ${(m.installed || isDownloading) ? 'disabled' : ''}>
-                                    ${m.installed ? '无需下载' : (isDownloading ? '下载中...' : '一键下载')}
-                                </button>
+                            <div style="max-width: 280px; color: #9aa4b2; font-size: 0.82em; line-height: 1.5;">
+                                模型下载、加载与推理由 Ollama 进程负责；后端只调用推理服务。
                             </div>
                         </div>
                     </div>

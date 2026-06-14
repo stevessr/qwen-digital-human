@@ -47,14 +47,14 @@ cargo build --release
 The primary backend is a FastAPI app in `backend/src/qdh_backend/` with a static WebGPU frontend in `static/`. The first migration phase preserves the existing browser API contracts while moving LLM calls to external providers, defaulting to local Ollama.
 
 - **`backend/src/qdh_backend/main.py`** — FastAPI app factory, route registration, static file mount
-- **`backend/src/qdh_backend/settings.py`** — environment settings, repo/static/models path resolution
+- **`backend/src/qdh_backend/settings.py`** — environment settings and repo/static path resolution
 - **`backend/src/qdh_backend/llm.py`** — Ollama/OpenAI-compatible providers, prompt composition, `<think>` filtering
 - **`backend/src/qdh_backend/stream_protocol.py`** — `qdh-binary-v2` binary stream encoder compatible with `static/main.js`
 - **`backend/src/qdh_backend/routes/chat.py`** — `/api/chat` JSON and binary streaming chat
-- **`backend/src/qdh_backend/routes/pipeline.py`** — `/api/pipeline` ASR → RAG → LLM → TTS → avatar frame compatibility pipeline
-- **`backend/src/qdh_backend/routes/tts.py`** — `/api/tts`, currently silence WAV compatibility provider
-- **`backend/src/qdh_backend/routes/asr_ws.py`** — `/api/ws/asr` WebSocket protocol compatibility layer
-- **`backend/src/qdh_backend/model_manager.py`** — model catalog, download progress, deletion, SHA256 verification
+- **`backend/src/qdh_backend/routes/pipeline.py`** — `/api/pipeline` browser transcript → RAG → Ollama-backed LLM → avatar frame compatibility pipeline
+- **`backend/src/qdh_backend/routes/tts.py`** — `/api/tts`, compatibility-only silence WAV; browser SpeechSynthesis is the real TTS path
+- **`backend/src/qdh_backend/routes/asr_ws.py`** — `/api/ws/asr` compatibility layer; browser SpeechRecognition is the real ASR path
+- **`backend/src/qdh_backend/model_manager.py`** — reports Ollama/OpenAI-compatible LLM service status; no local model download/load management
 - **`backend/src/qdh_backend/map_search.py`** — Nominatim/OpenStreetMap search wrapper
 - **`backend/src/qdh_backend/rag.py`** — lightweight RAG compatibility service
 - **`backend/src/qdh_backend/avatar.py`** — A2BS/NNR-compatible render frame preparation
@@ -66,15 +66,15 @@ The primary backend is a FastAPI app in `backend/src/qdh_backend/` with a static
 |--------|------|---------|
 | GET | `/health` | Python backend health check |
 | POST | `/api/chat` | Chat with LLM; JSON or `qdh-binary-v2` stream |
-| POST | `/api/tts` | Text-to-speech compatibility endpoint returning `audio/wav` |
-| POST | `/api/pipeline` | Full pipeline: ASR transcript → RAG → LLM → TTS → avatar frame |
-| GET | `/api/ws/asr` | WebSocket ASR protocol compatibility layer |
-| GET | `/api/models/status` | Model library with install progress |
-| POST | `/api/models/download` | Download model from URL |
-| POST | `/api/models/delete` | Delete model file |
-| POST | `/api/models/verify` | SHA256 model verification |
-| POST | `/api/models/preload/asr` | ASR preload compatibility endpoint |
-| POST | `/api/models/preload/tts` | TTS preload compatibility endpoint |
+| POST | `/api/tts` | Compatibility endpoint returning silence `audio/wav`; browser SpeechSynthesis is preferred |
+| POST | `/api/pipeline` | Browser transcript/RAG → Ollama-backed LLM → avatar frame |
+| GET | `/api/ws/asr` | Compatibility endpoint; browser SpeechRecognition is preferred |
+| GET | `/api/models/status` | Ollama/OpenAI-compatible LLM service status |
+| POST | `/api/models/download` | Compatibility endpoint; returns unsupported because Ollama manages models |
+| POST | `/api/models/delete` | Compatibility endpoint; returns unsupported because Ollama manages models |
+| POST | `/api/models/verify` | Compatibility endpoint; returns unsupported because backend has no local model files |
+| POST | `/api/models/preload/asr` | Compatibility endpoint; ASR is browser-provided |
+| POST | `/api/models/preload/tts` | Compatibility endpoint; TTS is browser-provided |
 | POST | `/api/map/search` | Nominatim map search |
 | POST | `/api/context/retrieve` | RAG context retrieval compatibility endpoint |
 
@@ -84,5 +84,6 @@ The primary backend is a FastAPI app in `backend/src/qdh_backend/` with a static
 - Preserve `qdh-binary-v2` (`application/octet-stream`, `X-Stream-Format: qdh-binary-v2`) because `static/main.js` decodes binary frames directly.
 - Keep the old `fast_mode` request field for compatibility, but provider selection now comes from environment variables.
 - Default LLM is local Ollama; `openai_compatible` supports external APIs with `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL`.
-- ASR, TTS, RAG, A2BS, and NNR are compatibility-first in the first Python phase; upgrade them behind provider/service boundaries later.
-- Model files remain under `models/`; the model page still expects the 7 legacy GGUF/MNN entries.
+- Backend no longer loads local inference models; Ollama is the local model inference service for LLM.
+- ASR and TTS are browser-provided through Web Speech APIs; backend ASR/TTS endpoints are compatibility-only and must not grow local model inference.
+- `/models` should present browser ASR/TTS capabilities and Ollama service status, not legacy GGUF/MNN download management.

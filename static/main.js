@@ -3621,10 +3621,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     const statusMessage =
                         payload.message ||
                         (isBrowserAsrPreferred()
-                            ? '本地 Qwen ASR 作为备用已连接'
+                            ? '后端 ASR 兼容层已连接（浏览器 ASR 优先）'
                             : 'ASR ready');
                     setAsrLivePanel(
-                        isBrowserAsrPreferred() ? '本地 ASR 备用' : 'ASR 就绪',
+                        isBrowserAsrPreferred() ? 'ASR 兼容层' : 'ASR 就绪',
                         statusMessage,
                         'idle'
                     );
@@ -3650,7 +3650,7 @@ document.addEventListener('DOMContentLoaded', () => {
             '浏览器 ASR 待命',
             BrowserSpeechRecognitionCtor
                 ? '浏览器实时识别已启用，按住说话即可转写。'
-                : '当前浏览器不支持 SpeechRecognition，将回退本地 Qwen ASR。',
+                : '当前浏览器不支持 SpeechRecognition；后端仅保留 ASR 兼容协议，不提供本地语音模型。',
             BrowserSpeechRecognitionCtor ? 'idle' : 'error'
         );
     } else {
@@ -4012,7 +4012,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (activeAsrMode === 'browser' && BrowserSpeechRecognitionCtor) {
                 setAsrLivePanel(
                     '浏览器 ASR 启动失败',
-                    '浏览器实时识别无法启动，将回退到本地 Qwen ASR。请重新按住说话。',
+                    '浏览器实时识别无法启动；后端不再提供本地 ASR 模型推理，请检查浏览器权限或换用支持 SpeechRecognition 的浏览器。',
                     'error'
                 );
             } else {

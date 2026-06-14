@@ -30,8 +30,7 @@ class ModelManager:
             service_available = True
             data = response.json()
             names = {
-                str(item.get("name") or item.get("model") or "")
-                for item in data.get("models", [])
+                str(item.get("name") or item.get("model") or "") for item in data.get("models", [])
             }
             model_available = model_name in names
             if model_available:
@@ -97,7 +96,9 @@ class ModelManager:
 
     async def download_model(self, name: str, url: str) -> None:
         del name, url
-        raise RuntimeError("后端不再管理本地模型文件；请使用 Ollama 管理 LLM 模型，例如 ollama pull <model>。")
+        raise RuntimeError(
+            "后端不再管理本地模型文件；请使用 Ollama 管理 LLM 模型，例如 ollama pull <model>。"
+        )
 
     async def delete_model(self, name: str) -> None:
         del name

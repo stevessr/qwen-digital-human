@@ -61,10 +61,10 @@ uv run uvicorn qdh_backend.main:app --host 127.0.0.1 --port 3000
 
 ## 第一阶段限制
 
-- LLM 已接 Ollama/OpenAI-compatible provider。
-- ASR 是 WebSocket 协议兼容层，尚未接真实识别模型。
-- TTS 返回合法静音 WAV，用于保持前端链路和 avatar frame 结构；后续可替换为真实 TTS provider。
-- RAG 先保留接口和 `top_k=0` 语义，未接 embedding/reranker。
+- LLM 已接 Ollama/OpenAI-compatible provider；默认使用本地 Ollama 作为唯一模型推理服务。
+- ASR 由浏览器 SpeechRecognition / webkitSpeechRecognition 提供，后端只保留 WebSocket 兼容协议，不做语音模型推理。
+- TTS 由浏览器 SpeechSynthesis 提供，后端 `/api/tts` 只保留静音 WAV 兼容响应，不做语音模型推理。
+- RAG 先保留接口和 `top_k=0` 语义，未接本地 embedding/reranker 模型。
 - Rust `src/` 仍保留为旧实现参考和回退路径。
 
 ## 验证
