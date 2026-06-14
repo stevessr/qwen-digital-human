@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>地图数字人（本地 Qwen ASR/TTS）</title>
+    <style>
+        body { margin: 0; display: flex; height: 100vh; font-family: sans-serif; background-color: #121212; color: #fff; overflow: hidden; }
+        #left-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; background: #0a0a0a; position: relative; }
+        #avatar-stage {
+            position: absolute;
+            top: 18px;
+            left: 18px;
+            z-index: 10;
+            width: min(44vw, calc(100% - 36px), 560px);
+            height: min(34vw, calc(100vh - 120px), 420px);
+            min-width: 280px;
+            min-height: 220px;
+            background: transparent;
+            touch-action: none;
+            user-select: none;
+            cursor: grab;
+        }
+        #avatar-stage.dragging { cursor: grabbing; }
+        canvas { width: 100%; height: 100%; display: block; }
+        #avatar-stage canvas { cursor: inherit; }
+        #waveform-overlay { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); width: 60%; height: 60px; opacity: 0.6; pointer-events: none; }
+        #map-panel { flex: 1; min-height: 280px; display: flex; flex-direction: column; background: #0f1115; border-top: 1px solid #222; }
+        .map-topbar { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; padding: 12px 14px; border-bottom: 1px solid #262626; background: linear-gradient(180deg, #171b24, #11151c); }
+        .map-title { font-weight: 700; line-height: 1.3; }
+        .map-status { margin-top: 4px; color: #aab4c6; font-size: 0.82em; line-height: 1.4; }
+        .map-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+        .map-actions button { width: auto; margin-bottom: 0; padding: 8px 10px; }
+        .map-search { display: flex; gap: 8px; padding: 10px 14px; border-bottom: 1px solid #262626; background: #12151c; }
+        .map-search input[type="text"] { flex: 1; margin-bottom: 0; }
+        .map-results { display: flex; gap: 8px; overflow-x: auto; padding: 10px 14px; border-bottom: 1px solid #262626; background: #101419; }
+        .map-result { min-width: 180px; max-width: 220px; padding: 10px; border-radius: 8px; background: #1b2230; border: 1px solid transparent; cursor: pointer; color: #fff; }
+        .map-result.selected { border-color: #4c8bf5; background: #1f2d45; }
+        .map-result small { display: block; margin-top: 6px; color: #a9b4c7; white-space: pre-wrap; line-height: 1.4; }
+        .map-frame { flex: 1; width: 100%; border: 0; background: #111; }
+        .map-legend { padding: 10px 14px; border-top: 1px solid #262626; background: #101419; color: #b8c0d0; font-size: 0.82em; line-height: 1.45; white-space: pre-wrap; }
+        #chat-container { width: 420px; display: flex; flex-direction: column; background: #1e1e1e; border-left: 1px solid #333; min-width: 360px; }
+        #chat-history { flex: 1; padding: 20px; overflow-y: auto; }
+        .message { margin-bottom: 15px; line-height: 1.5; padding: 10px; border-radius: 8px; }
+        .user-message { background: #2b5278; align-self: flex-end; }
+        .bot-message { background: #2c2c2c; }
+        textarea { width: 100%; box-sizing: border-box; background: #333; color: white; border: 1px solid #555; border-radius: 4px; padding: 10px; resize: vertical; }
+        #controls { padding: 20px; border-top: 1px solid #333; }
+        input[type="text"], input[type="number"] { width: 100%; padding: 10px; box-sizing: border-box; background: #333; color: white; border: 1px solid #555; border-radius: 4px; margin-bottom: 10px; }
+        button { padding: 10px; width: 100%; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; margin-bottom: 10px; }
+        button:hover { background: #0056b3; }
+        label { font-size: 0.9em; display: flex; align-items: center; gap: 10px; }
+        .prompt-panel { margin: 12px 20px 0; padding: 12px; border: 1px solid #333; border-radius: 10px; background: #171717; }
+        .prompt-panel summary { cursor: pointer; font-weight: 600; margin-bottom: 10px; }
+        .prompt-grid { display: flex; flex-direction: column; gap: 12px; }
+        .prompt-field { display: flex; flex-direction: column; gap: 6px; font-size: 0.86em; }
+        .prompt-field span { color: #bbb; }
+        .prompt-field textarea { min-height: 72px; }
+        .rerank-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+        .rerank-grid .prompt-field-wide { grid-column: 1 / -1; }
+        .prompt-options { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0; }
+        .prompt-options label { flex: 1 1 150px; font-size: 0.82em; }
+        .prompt-actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+        .prompt-actions button { margin-bottom: 0; }
+        .prompt-note { font-size: 0.75em; color: #8f8f8f; line-height: 1.4; margin-top: 8px; }
+        .face-panel { margin: 0; padding: 12px 20px 16px; border-bottom: 1px solid #333; background: #141414; }
+        .face-panel summary { cursor: pointer; font-weight: 600; }
+        .face-panel-grid { display: grid; grid-template-columns: minmax(220px, 1.25fr) minmax(220px, 0.95fr); gap: 12px; margin-top: 10px; align-items: stretch; }
+        .face-preview { position: relative; aspect-ratio: 4 / 3; min-height: 220px; overflow: hidden; border-radius: 12px; border: 1px solid #2f3744; background: #06090f; }
+        .face-preview video,
+        .face-preview canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+        .face-preview.mirrored video,
+        .face-preview.mirrored canvas { transform: scaleX(-1); }
+        .face-preview canvas { pointer-events: none; }
+        .face-controls { display: flex; flex-direction: column; gap: 10px; }
+        .face-control-row { display: flex; flex-wrap: wrap; gap: 8px; }
+        .face-control-row button { width: auto; margin-bottom: 0; }
+        .face-toggle-row { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+        .face-toggle-row label { margin: 0; font-size: 0.85em; }
+        .face-status { color: #aab4c6; font-size: 0.82em; line-height: 1.45; white-space: pre-wrap; min-height: 3em; }
+        .face-note { color: #92a0b8; font-size: 0.8em; line-height: 1.45; }
+        .asr-live-panel {
+            margin: 8px 20px 0;
+            padding: 12px 14px;
+            border: 1px solid #2f4f73;
+            border-radius: 12px;
+            background: linear-gradient(180deg, rgba(14, 22, 34, 0.98), rgba(11, 17, 26, 0.98));
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+        }
+        .asr-live-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+        }
+        .asr-live-title {
+            font-weight: 700;
+            color: #e8f1ff;
+            letter-spacing: 0.01em;
+        }
+        .asr-live-state {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            color: #8ac2ff;
+            font-size: 0.8rem;
+            white-space: nowrap;
+        }
+        .asr-live-state::before {
+            content: "";
+            width: 8px;
+            height: 8px;
+            border-radius: 999px;
+            background: #64748b;
+            box-shadow: 0 0 0 0 rgba(100, 116, 139, 0.24);
+        }
+        .asr-live-state[data-tone="listening"]::before {
+            background: #34d399;
+            animation: asrPulse 1.15s infinite;
+        }
+        .asr-live-state[data-tone="processing"]::before {
+            background: #f59e0b;
+            animation: asrPulse 1.15s infinite;
+        }
+        .asr-live-state[data-tone="final"]::before {
+            background: #60a5fa;
+        }
+        .asr-live-state[data-tone="error"]::before {
+            background: #ef4444;
+        }
+        @keyframes asrPulse {
+            0% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.22); }
+            70% { box-shadow: 0 0 0 10px rgba(52, 211, 153, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); }
+        }
+        .asr-live-text {
+            margin-top: 8px;
+            min-height: 3.2em;
+            color: #eef5ff;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            font-size: 0.94rem;
+        }
+        .asr-live-text[data-tone="listening"] { color: #d8faea; }
+        .asr-live-text[data-tone="processing"] { color: #fff0cf; }
+        .asr-live-text[data-tone="final"] { color: #d7e9ff; }
+        .asr-live-text[data-tone="error"] { color: #ffb3b3; }
+        .asr-live-message {
+            border-left: 4px solid #4ea1ff;
+            background: linear-gradient(135deg, rgba(35, 64, 98, 0.95), rgba(25, 42, 65, 0.95));
+        }
+        .asr-live-message[data-tone="listening"] { border-left-color: #34d399; }
+        .asr-live-message[data-tone="processing"] { border-left-color: #f59e0b; }
+        .asr-live-message[data-tone="final"] { border-left-color: #60a5fa; }
+        .asr-live-message[data-tone="error"] { border-left-color: #ef4444; }
+    </style>
+</head>
+<body>
+    <div id="left-pane">
+        <div id="avatar-stage">
+            <canvas id="webgpu-canvas"></canvas>
+            <canvas id="waveform-overlay"></canvas>
+        </div>
+        <section id="map-panel">
+            <div class="map-topbar">
+                <div>
+                    <div class="map-title">地图讲解面板</div>
+                    <div class="map-status" id="map-status">默认定位：北京天安门广场。可搜索地点并写入上下文。</div>
+                </div>
+                <div class="map-actions">
+                    <button id="apply-map-context-btn">写入上下文</button>
+                    <button id="clear-map-btn">清空地图</button>
+                </div>
+            </div>
+            <div class="map-search">
+                <input type="text" id="map-search-input" placeholder="搜索地点，例如：北京故宫 / 上海外滩 / 深圳湾公园">
+                <button id="map-search-btn">搜索地点</button>
+            </div>
+            <div class="map-results" id="map-results"></div>
+            <iframe id="map-frame" class="map-frame" title="地图视图" loading="lazy"></iframe>
+            <div class="map-legend" id="map-summary">地图会显示当前选中的地点。点击“写入上下文”后，地图信息会进入讲解上下文，数字人将围绕该地点回答。</div>
+        </section>
+    </div>
+    <div id="chat-container">
+        <div id="model-manager" style="padding: 10px; border-bottom: 1px solid #333; font-size: 0.8em; display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <strong>Models:</strong> <span id="model-list">Loading...</span>
+                <div style="margin-top: 4px; color: #9aa4b2;">Live2D 头像：Shizuku / Haru 01 / Haru 02（本地资源）｜本地 ASR/TTS：Qwen3-ASR-0.6B / Qwen3-TTS-12Hz-0.6B-CustomVoice（首次会自动下载到本地缓存）｜OpenCV 眼部追踪已移至配置网页</div>
+            </div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end;">
+                <a href="/config.html" style="color: #007bff; text-decoration: none; border: 1px solid #007bff; padding: 2px 8px; border-radius: 4px;">配置网页</a>
+                <a href="/models.html" style="color: #007bff; text-decoration: none; border: 1px solid #007bff; padding: 2px 8px; border-radius: 4px;">管理控制台</a>
+            </div>
+        </div>
+        <div id="live2d-toolbar" style="padding: 8px 10px; border-bottom: 1px solid #333; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+            <button id="live2d-cycle-model-btn" style="width: auto; margin-bottom: 0;">切换模型</button>
+            <button id="live2d-happy-btn" style="width: auto; margin-bottom: 0;">开心</button>
+            <button id="live2d-thinking-btn" style="width: auto; margin-bottom: 0;">思考</button>
+            <button id="live2d-surprised-btn" style="width: auto; margin-bottom: 0;">惊讶</button>
+            <button id="live2d-sad-btn" style="width: auto; margin-bottom: 0;">难过</button>
+            <button id="live2d-angry-btn" style="width: auto; margin-bottom: 0;">生气</button>
+            <span id="intent-status" style="margin-left: auto; color: #9aa4b2;">意图：待机</span>
+        </div>
+        <div style="margin: 8px 0 0; padding: 10px 14px; border: 1px solid #2b3550; border-radius: 10px; background: #101723; color: #9ab3d4; font-size: 0.88rem;">
+            OpenCV 眼部追踪已迁移到 <a href="/config.html" style="color: #4ea1ff; text-decoration: none;">配置网页</a>。开启后，主页面会自动使用摄像头跟踪人眼并驱动数字人姿态。
+        </div>
+        <div class="asr-live-panel" aria-live="polite">
+            <div class="asr-live-head">
+                <div class="asr-live-title">实时 ASR</div>
+                <div id="asr-live-state" class="asr-live-state" data-tone="idle">待机</div>
+            </div>
+            <div id="asr-live-text" class="asr-live-text" data-tone="idle">按住“按住说话（地图讲解）”开始实时转写，识别结果会在这里即时显示。</div>
+        </div>
+        <div id="chat-history"></div>
+        <div id="stream-text" style="color: #aaa; padding: 0 20px; font-style: italic; min-height: 1.2em;"></div>
+        <div id="controls">
+            <label>
+                <input type="checkbox" id="fast-mode" checked>
+                Fast Mode (Local Qwen3.5-0.8B)
+            </label>
+            <input type="text" id="chat-input" placeholder="输入地点、路线或地图问题...">
+            <button id="send-btn">发送讲解</button>
+            <button id="voice-btn" style="background: #28a745;">按住说话（地图讲解）</button>
+        </div>
+    </div>
+    <script src="/main.js"></script>
+</body>
+</html>
