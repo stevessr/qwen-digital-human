@@ -30,6 +30,8 @@ const selectOptions = computed(() => (
     value: option.name,
     label: [
       option.name,
+      option.cloud_hosted ? 'Ollama Cloud' : '本地',
+      option.installed ? '已可用' : '需 pull',
       option.size && option.size !== '由 Ollama 管理' ? option.size : '',
       option.parameter_size || '',
       option.quantization_level || '',
@@ -56,16 +58,23 @@ const openFile = (path: string) => {
   window.open(path, '_blank', 'noopener,noreferrer')
 }
 
-const serviceStatusColor = (model: ManagedModelInfo): string => (model.installed ? 'success' : 'error')
+const serviceStatusColor = (model: ManagedModelInfo): string => {
+  if (model.installed) return 'success'
+  if (model.cloud_hosted && model.service_available) return 'warning'
+  return 'error'
+}
 
-const serviceStatusText = (model: ManagedModelInfo): string => (
-  model.installed ? '● 服务可用' : '○ 服务不可用'
-)
+const serviceStatusText = (model: ManagedModelInfo): string => {
+  if (model.installed) return '● 服务可用'
+  if (model.cloud_hosted && model.service_available) return '○ Cloud 待 pull'
+  return '○ 服务不可用'
+}
 
 const providerLabel = (model: ManagedModelInfo): string => {
+  if (model.cloud_hosted) return 'Ollama Cloud'
+  if (model.provider) return model.provider
   if (model.managed_by === 'ollama') return '本地 Ollama'
   if (model.managed_by === 'browser') return '浏览器'
-  if (model.provider) return model.provider
   return '外部推理服务'
 }
 
@@ -85,7 +94,7 @@ const selectFromCard = async (name: string) => {
       <div>
         <h1>推理服务与浏览器能力</h1>
         <p>
-          ASR 与 TTS 由浏览器提供；后端不再加载本地推理模型，只通过本地 Ollama 调用 LLM 推理服务。
+          ASR 与 TTS 由浏览器提供；LLM 优先使用 Ollama Cloud 托管模型，并通过本地 Ollama 后端调用。
         </p>
       </div>
       <ASpace wrap>
@@ -147,11 +156,11 @@ const selectFromCard = async (name: string) => {
 
     <section class="model-section">
       <div class="section-title-row">
-        <h2>本地 Ollama LLM 推理服务</h2>
-        <ATag color="blue">后端仅调用服务，不托管模型</ATag>
+        <h2>Ollama LLM 推理服务</h2>
+        <ATag color="blue">优先 Ollama Cloud</ATag>
       </div>
       <p class="section-desc service-desc">
-        这里展示后端当前连接的本地 Ollama 服务状态。模型下载、加载与推理由 Ollama 进程负责，不再由后端管理 GGUF/MNN 文件。
+        这里展示后端当前连接的 Ollama 服务状态。Cloud 模型会排在本地模型前面；模型 pull、加载与推理由 Ollama 进程负责。
       </p>
 
       <div class="selector-card">
@@ -163,7 +172,7 @@ const selectFromCard = async (name: string) => {
             <ATag v-if="selectedModel?.selected" color="green">当前生效</ATag>
           </p>
           <p class="selector-hint">
-            这里直接读取本地 Ollama 的 <code>/api/tags</code>，切换后新的聊天和地图讲解请求会立即使用所选模型。
+            这里直接读取本地 Ollama 的 <code>/api/tags</code>，并额外提供 Cloud 托管候选模型；切换后新的聊天和地图讲解请求会立即使用所选模型。
           </p>
         </div>
         <ASpace class="selector-controls" wrap>
@@ -172,7 +181,7 @@ const selectFromCard = async (name: string) => {
             class="model-select"
             :options="selectOptions"
             :disabled="ollamaOptions.length === 0 || isLoading || isSelecting"
-            placeholder="选择本地 Ollama 模型"
+            placeholder="选择 Ollama Cloud 或本地模型"
           />
           <AButton
             type="primary"
@@ -197,7 +206,7 @@ const selectFromCard = async (name: string) => {
           type="warning"
           show-icon
           message="没有可选择的 Ollama 模型"
-          :description="`请先执行 ollama pull ${selectedModel?.name || 'qwen2.5:7b'}，然后点击刷新状态。`"
+          :description="`请先执行 ollama pull ${selectedModel?.name || 'gpt-oss:120b-cloud'}，然后点击刷新状态。`"
         />
       </div>
 
@@ -225,11 +234,14 @@ const selectFromCard = async (name: string) => {
             <ATag v-if="model.selected" color="green" class="status-tag">
               当前聊天模型
             </ATag>
+            <ATag v-if="model.cloud_hosted" color="cyan" class="status-tag">
+              Ollama Cloud
+            </ATag>
             <ATag :color="serviceStatusColor(model)" class="status-tag">
               {{ serviceStatusText(model) }}
             </ATag>
             <AButton
-              v-if="model.managed_by === 'ollama' && model.installed && !model.selected"
+              v-if="model.managed_by === 'ollama' && (model.installed || model.cloud_hosted) && !model.selected"
               size="small"
               :loading="isSelecting && modelSelectValue === model.name"
               @click="selectFromCard(model.name)"

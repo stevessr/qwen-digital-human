@@ -1,5 +1,4 @@
 import type { PromptSettings } from '@/types/chat'
-import type { Live2DModelKey } from '@/types/avatar'
 
 export const DEFAULT_SYSTEM_PROMPT = '你是地图数字人讲解员，专注介绍地点、地标、路线、周边设施和到达方式。请优先用中文回答，语气自然、清晰、简洁；如果上下文提供了地图信息，请优先围绕当前地点讲解。'
 export const LEGACY_SYSTEM_PROMPT = '你是 Qwen Digital Human，一个简洁、友好、会结合上下文回答的数字人助手。请优先用中文回答，除非用户明确要求其他语言。'
@@ -73,26 +72,6 @@ export const DEFAULT_OPENCV_SETTINGS = {
 } as const
 
 export const OPENCV_CONTROL_CHANNEL_NAME = 'qdh-opencv-control'
-
-export interface Live2DModelSpec {
-  label: string
-  url: string
-}
-
-export const LIVE2D_MODELS: Record<Live2DModelKey, Live2DModelSpec> = {
-  shizuku: {
-    label: 'Shizuku',
-    url: '/live2d_models/shizuku/assets/shizuku.model.json',
-  },
-  haru01: {
-    label: 'Haru 01',
-    url: '/live2d_models/haru01/assets/haru01.model.json',
-  },
-  haru02: {
-    label: 'Haru 02',
-    url: '/live2d_models/haru02/assets/haru02.model.json',
-  },
-}
 
 export interface MapBounds {
   south: number

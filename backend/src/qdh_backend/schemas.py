@@ -120,6 +120,8 @@ class OllamaModelOption(CompatModel):
     name: str
     size: str = ""
     size_bytes: int | None = None
+    installed: bool = False
+    cloud_hosted: bool = False
     digest: str = ""
     modified_at: str = ""
     family: str = ""
@@ -142,6 +144,7 @@ class ModelInfo(CompatModel):
     verifiable: bool = False
     deletable: bool = False
     selected: bool = False
+    cloud_hosted: bool = False
     service_available: bool | None = None
     status_message: str | None = None
     options: list[OllamaModelOption] = Field(default_factory=list)

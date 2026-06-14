@@ -2,22 +2,25 @@
 
 这是项目的新 Python 后端，目标是替换原 Rust/Axum 服务端，并保持现有 `static/` 前端 API 契约兼容。
 
-## 默认 LLM：本地 Ollama
+## 默认 LLM：Ollama Cloud 优先
 
 默认配置：
 
 ```bash
 LLM_PROVIDER=ollama
 OLLAMA_BASE_URL=http://127.0.0.1:11434
-OLLAMA_MODEL=qwen2.5:7b
+OLLAMA_PREFER_CLOUD=true
+OLLAMA_CLOUD_MODELS=gpt-oss:120b-cloud,gpt-oss:20b-cloud,qwen3-coder:480b-cloud,glm-4.7:cloud,minimax-m2.1:cloud,deepseek-v3.1:671b-cloud
 ```
 
-运行前请确保 Ollama 已启动并已拉取模型：
+运行前请确保本地 Ollama 已启动。首次使用某个 Cloud 托管模型时，先执行 pull，让本地 Ollama 记录该模型：
 
 ```bash
 ollama serve
-ollama pull qwen2.5:7b
+ollama pull gpt-oss:120b-cloud
 ```
+
+如需强制使用本地模型，再设置 `OLLAMA_MODEL=qwen2.5:7b` 或在 <http://localhost:5173/models> 切换。
 
 如需使用 OpenAI-compatible 外部 API，可在 `backend/.env` 中设置：
 
@@ -48,7 +51,8 @@ uv run uvicorn qdh_backend.main:app --host 127.0.0.1 --port 3000
 - `POST /api/tts`
 - `POST /api/pipeline`
 - `GET /api/ws/asr`
-- `GET /api/models/status`（展示 Ollama/OpenAI-compatible LLM 服务状态）
+- `GET /api/models/status`（展示 Ollama/OpenAI-compatible LLM 服务状态，Cloud 候选模型优先）
+- `POST /api/models/select`（切换当前聊天后端使用的 Ollama Cloud/本地模型）
 - `POST /api/models/download`（兼容端点，返回“不再由后端管理模型”）
 - `POST /api/models/delete`（兼容端点，返回“不再由后端管理模型”）
 - `POST /api/models/verify`（兼容端点，返回“不再由后端管理模型”）
@@ -61,7 +65,7 @@ uv run uvicorn qdh_backend.main:app --host 127.0.0.1 --port 3000
 
 ## 第一阶段限制
 
-- LLM 已接 Ollama/OpenAI-compatible provider；默认使用本地 Ollama 作为唯一模型推理服务。
+- LLM 已接 Ollama/OpenAI-compatible provider；默认通过本地 Ollama HTTP API 优先调用 Ollama Cloud 托管模型。
 - ASR 由浏览器 SpeechRecognition / webkitSpeechRecognition 提供，后端只保留 WebSocket 兼容协议，不做语音模型推理。
 - TTS 由浏览器 SpeechSynthesis 提供，后端 `/api/tts` 只保留静音 WAV 兼容响应，不做语音模型推理。
 - RAG 先保留接口和 `top_k=0` 语义，未接本地 embedding/reranker 模型。

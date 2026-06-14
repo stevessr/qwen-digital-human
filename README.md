@@ -1,13 +1,13 @@
 # Qwen Digital Human (Python + WebGPU)
 
-地图数字人项目：Python 后端提供同源 API 与静态资源服务，前端使用 WebGPU/Live2D 渲染数字人。LLM 默认通过本地 Ollama 调用，也可切换到 OpenAI-compatible 外部 API。
+地图数字人项目：Python 后端提供同源 API 与静态资源服务，前端使用 WebGPU/Live2D 渲染数字人。LLM 默认通过本地 Ollama 调用 Ollama Cloud 托管模型，也可切换到本地模型或 OpenAI-compatible 外部 API。
 
 ## 当前状态
 
 - **默认后端**：`backend/`，FastAPI + httpx + Ollama/OpenAI-compatible provider。
 - **旧后端参考**：`src/`，原 Rust/Axum + llama-cpp-2/Candle 实现仍保留。
 - **静态前端**：`static/`，由 Python 后端同源托管。
-- **推理服务**：后端不再加载本地模型文件；LLM 推理由本地 Ollama 服务提供，ASR/TTS 由浏览器提供。
+- **推理服务**：后端不再加载本地模型文件；LLM 优先使用 Ollama Cloud 托管模型，仍通过本地 Ollama HTTP API 调用；ASR/TTS 由浏览器提供。
 
 ## 功能
 
@@ -15,7 +15,7 @@
 - Pipeline：`POST /api/pipeline`，保持 transcription、LLM reply、avatar render frame 契约。
 - TTS：默认由浏览器 `SpeechSynthesis` 提供；`POST /api/tts` 仅保留兼容静音 WAV，不做模型推理。
 - ASR：默认由浏览器 `SpeechRecognition` / `webkitSpeechRecognition` 提供；`GET /api/ws/asr` 仅保留兼容协议，不做模型推理。
-- 推理服务状态：`/api/models/status` 展示当前 Ollama/OpenAI-compatible LLM 服务状态；`/api/models/select` 可在已安装的本地 Ollama 模型之间切换聊天后端。
+- 推理服务状态：`/api/models/status` 展示当前 Ollama/OpenAI-compatible LLM 服务状态；`/api/models/select` 可在 Ollama Cloud 候选模型和已安装的本地模型之间切换聊天后端。
 - 地图搜索：`POST /api/map/search` 调用 Nominatim。
 - RAG 上下文：`POST /api/context/retrieve` 保留接口和 `top_k=0` 空上下文语义。
 
@@ -25,17 +25,19 @@
 - `uv`
 - Ollama（默认 LLM provider）
 
-默认模型示例：
+默认优先使用 Ollama Cloud 托管模型（例如 `gpt-oss:120b-cloud`）。首次使用前请确保本地 Ollama 已启动，并按需要 pull Cloud 模型：
 
 ```bash
 ollama serve
-ollama pull qwen2.5:7b
+ollama pull gpt-oss:120b-cloud
 ```
 
-如需换模型，可打开 Vue 开发环境的 <http://localhost:5173/models> 在已安装的 Ollama 模型之间切换；如需持久默认值，编辑 `backend/.env` 或设置环境变量：
+如需换模型，可打开 Vue 开发环境的 <http://localhost:5173/models> 在 Ollama Cloud 候选模型和本地模型之间切换；如需持久默认值，编辑 `backend/.env` 或设置环境变量：
 
 ```bash
-OLLAMA_MODEL=your-local-model
+OLLAMA_MODEL=your-model
+OLLAMA_PREFER_CLOUD=true
+OLLAMA_CLOUD_MODELS=gpt-oss:120b-cloud,gpt-oss:20b-cloud,qwen3-coder:480b-cloud
 ```
 
 ## 运行

@@ -11,25 +11,34 @@ export interface AvatarPosture {
   head_roll: number // -1 to 1
 }
 
+export type DigitalHumanPersonaKey = 'guide' | 'professional' | 'energetic'
+
+export type DigitalHumanExpressionName = 'happy' | 'thinking' | 'surprised' | 'sad' | 'angry'
+export type DigitalHumanGestureName = 'greet' | 'nod' | 'focus' | 'idle'
+export type DigitalHumanMotionName = 'tap_body' | 'idle' | 'flick_head' | 'pinch_in' | 'shake'
+
+export interface DigitalHumanMotionState {
+  name: DigitalHumanMotionName
+  startedAt: number
+  durationMs: number
+}
+
 export interface AvatarState {
   expression: AvatarExpression
   posture: AvatarPosture
   waveform: Float32Array
   startTime: number
+  persona: DigitalHumanPersonaKey
+  motion: DigitalHumanMotionState
 }
 
-export type DigitalHumanExpressionName = 'happy' | 'thinking' | 'surprised' | 'sad' | 'angry'
-export type DigitalHumanGestureName = 'greet' | 'nod' | 'focus' | 'idle'
-export type DigitalHumanMotionName = 'tap_body' | 'idle' | 'flick_head' | 'pinch_in' | 'shake'
-export type Live2DModelKey = 'shizuku' | 'haru01' | 'haru02'
-
 export interface AvatarIntent {
-  kind: 'expression' | 'gesture' | 'motion' | 'switch_model' | 'switch_model_cycle'
+  kind: 'expression' | 'gesture' | 'motion' | 'switch_persona' | 'switch_persona_cycle'
   label: string
   expression?: DigitalHumanExpressionName
   gesture?: DigitalHumanGestureName
   motion?: DigitalHumanMotionName
-  modelKey?: Live2DModelKey
+  personaKey?: DigitalHumanPersonaKey
 }
 
 // Face tracking types

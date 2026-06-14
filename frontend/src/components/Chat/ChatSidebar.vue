@@ -1,17 +1,48 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useChatStore } from '@/stores/chat'
+import { message as AMessage } from 'ant-design-vue'
 import { useStreamingChat } from '@/composables/useStreamingChat'
 import { useTTS } from '@/composables/useTTS'
 import { useAvatarIntent } from '@/utils/intent'
-import { message as AMessage } from 'ant-design-vue'
+import { useAvatarStore } from '@/stores/avatar'
+import { useChatStore } from '@/stores/chat'
+import type { AvatarIntent, DigitalHumanExpressionName } from '@/types/avatar'
 
 const chatStore = useChatStore()
+const avatarStore = useAvatarStore()
 const { isStreaming, sendMessage } = useStreamingChat()
 const { play: playTTS } = useTTS()
 const { detectIntents } = useAvatarIntent()
 
 const inputText = ref('')
+const activeIntentLabel = ref('待机')
+
+const applyAvatarIntent = (intent: AvatarIntent) => {
+  if (intent.kind === 'switch_persona_cycle') {
+    avatarStore.cyclePersona()
+  } else if (intent.kind === 'switch_persona' && intent.personaKey) {
+    avatarStore.setPersona(intent.personaKey)
+  } else if (intent.kind === 'expression' && intent.expression) {
+    avatarStore.applyExpressionPreset(intent.expression)
+    if (intent.motion) avatarStore.performMotion(intent.motion)
+  } else if (intent.kind === 'motion' && intent.motion) {
+    avatarStore.performMotion(intent.motion)
+  }
+
+  activeIntentLabel.value = intent.label
+}
+
+const EXPRESSION_LABELS: Record<DigitalHumanExpressionName, string> = {
+  happy: '开心',
+  thinking: '思考',
+  surprised: '惊讶',
+  sad: '难过',
+  angry: '生气',
+}
+
+const setExpression = (expression: DigitalHumanExpressionName) => {
+  applyAvatarIntent({ kind: 'expression', expression, label: EXPRESSION_LABELS[expression] })
+}
 
 const handleSend = async () => {
   const text = inputText.value.trim()
@@ -19,31 +50,24 @@ const handleSend = async () => {
 
   inputText.value = ''
 
-  // Detect avatar intents
   const intents = detectIntents(text)
-  if (intents.length > 0) {
-    console.log('Detected intents:', intents)
-    // TODO: Trigger expressions/motions via useLive2D
-  }
+  intents.forEach(applyAvatarIntent)
 
-  // Send message
   try {
     await sendMessage(text, {
       onDelta: (_delta: string) => {
-        // Delta is already handled in useStreamingChat
+        avatarStore.updateExpression({ mouth_open: 0.22, smile: Math.max(avatarStore.expression.smile, 0.18) })
       },
       onStatus: (msg: string) => {
         console.log('Status:', msg)
       },
       onAudioDelta: (audioBase64: string, _sampleRate: number) => {
-        // TODO: Enqueue audio for real-time playback
         console.log('Audio delta received:', audioBase64.length, 'bytes')
       },
       onError: (err: Error) => {
         AMessage.error(err.message)
       },
       onComplete: async (reply: string) => {
-        // Play TTS if enabled
         if (chatStore.settings.tts_enabled && reply.trim()) {
           try {
             await playTTS(reply, chatStore.settings.browser_tts_enabled)
@@ -51,6 +75,7 @@ const handleSend = async () => {
             console.error('TTS playback failed:', err)
           }
         }
+        avatarStore.applyExpressionPreset('happy')
       },
     })
   } catch (err: any) {
@@ -61,7 +86,7 @@ const handleSend = async () => {
 const handleKeyPress = (e: KeyboardEvent) => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault()
-    handleSend()
+    void handleSend()
   }
 }
 </script>
@@ -72,7 +97,7 @@ const handleKeyPress = (e: KeyboardEvent) => {
       <div class="info-text">
         <strong>Models:</strong> Loading...
         <div class="info-hint">
-          Live2D 头像：Shizuku / Haru 01 / Haru 02（本地资源）
+          数字人形象：程序化渲染，支持表情、口型、眼动与 OpenCV 姿态驱动。
         </div>
       </div>
       <div class="info-links">
@@ -82,13 +107,15 @@ const handleKeyPress = (e: KeyboardEvent) => {
     </div>
 
     <div class="toolbar">
-      <AButton>切换模型</AButton>
-      <AButton>开心</AButton>
-      <AButton>思考</AButton>
-      <AButton>惊讶</AButton>
-      <AButton>难过</AButton>
-      <AButton>生气</AButton>
-      <span class="intent-status">意图：待机</span>
+      <AButton @click="applyAvatarIntent({ kind: 'switch_persona_cycle', label: '切换形象' })">
+        切换形象
+      </AButton>
+      <AButton @click="setExpression('happy')">开心</AButton>
+      <AButton @click="setExpression('thinking')">思考</AButton>
+      <AButton @click="setExpression('surprised')">惊讶</AButton>
+      <AButton @click="setExpression('sad')">难过</AButton>
+      <AButton @click="setExpression('angry')">生气</AButton>
+      <span class="intent-status">意图：{{ activeIntentLabel }}</span>
     </div>
 
     <div class="opencv-notice">

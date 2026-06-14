@@ -3,6 +3,7 @@ import { computed, toRef } from 'vue'
 import { useDigitalHuman } from '@/composables/useDigitalHuman'
 import { useAvatarStore } from '@/stores/avatar'
 import { useFaceTrackingStore } from '@/stores/faceTracking'
+import type { DigitalHumanPersonaKey } from '@/types/avatar'
 
 const avatarStore = useAvatarStore()
 const faceTrackingStore = useFaceTrackingStore()
@@ -11,6 +12,17 @@ const { signals } = useDigitalHuman(
   computed(() => avatarStore.state),
   toRef(() => faceTrackingStore.state)
 )
+
+const PERSONA_LABELS: Record<DigitalHumanPersonaKey, string> = {
+  guide: '地图讲解员',
+  professional: '专业导览员',
+  energetic: '元气助手',
+}
+
+const rootClasses = computed(() => [
+  'digital-human',
+  `persona-${avatarStore.persona}`,
+])
 
 const headStyle = computed(() => ({
   transform: [
@@ -40,13 +52,22 @@ const auraStyle = computed(() => ({
   opacity: 0.35 + signals.value.energy * 0.35,
   transform: `scale(${1 + signals.value.energy * 0.08})`,
 }))
+
+const personaLabel = computed(() => PERSONA_LABELS[avatarStore.persona])
 </script>
 
 <template>
-  <div class="digital-human" aria-label="数字人形象">
+  <div :class="rootClasses" aria-label="程序化数字人形象">
     <div class="aura" :style="auraStyle" />
     <div class="hologram-ring ring-one" />
     <div class="hologram-ring ring-two" />
+    <div class="speech-meter" aria-hidden="true">
+      <span
+        v-for="index in 12"
+        :key="index"
+        :style="{ transform: `scaleY(${0.35 + signals.energy * 1.1 + ((index % 3) * 0.09)})` }"
+      />
+    </div>
 
     <div class="body" :style="torsoStyle">
       <div class="shoulders" />
@@ -76,13 +97,21 @@ const auraStyle = computed(() => ({
 
     <div class="status-panel">
       <span class="status-dot" />
-      Procedural Digital Human
+      {{ personaLabel }} · 表情 / 口型 / 眼动
     </div>
   </div>
 </template>
 
 <style scoped>
 .digital-human {
+  --aura-color: rgba(91, 190, 255, 0.5);
+  --ring-color: rgba(106, 214, 255, 0.36);
+  --jacket-start: rgba(47, 95, 154, 0.95);
+  --jacket-end: rgba(23, 39, 70, 0.95);
+  --hair-start: #1d3458;
+  --hair-end: #070b14;
+  --iris-start: #baf6ff;
+  --iris-mid: #1478a8;
   position: relative;
   width: 100%;
   height: 100%;
@@ -95,11 +124,33 @@ const auraStyle = computed(() => ({
     radial-gradient(circle at 50% 80%, rgba(78, 255, 194, 0.12), transparent 42%);
 }
 
+.persona-professional {
+  --aura-color: rgba(94, 151, 255, 0.5);
+  --ring-color: rgba(129, 169, 255, 0.42);
+  --jacket-start: rgba(40, 64, 112, 0.96);
+  --jacket-end: rgba(14, 23, 48, 0.96);
+  --hair-start: #182338;
+  --hair-end: #05070d;
+  --iris-start: #dce8ff;
+  --iris-mid: #315aa0;
+}
+
+.persona-energetic {
+  --aura-color: rgba(87, 255, 197, 0.48);
+  --ring-color: rgba(98, 255, 208, 0.4);
+  --jacket-start: rgba(36, 139, 121, 0.96);
+  --jacket-end: rgba(12, 48, 61, 0.96);
+  --hair-start: #263d50;
+  --hair-end: #07111a;
+  --iris-start: #cfffea;
+  --iris-mid: #0f9075;
+}
+
 .aura {
   position: absolute;
   inset: 10% 12%;
   border-radius: 999px;
-  background: radial-gradient(circle, rgba(91, 190, 255, 0.5), rgba(33, 77, 122, 0.18) 44%, transparent 68%);
+  background: radial-gradient(circle, var(--aura-color), rgba(33, 77, 122, 0.18) 44%, transparent 68%);
   filter: blur(12px);
   transition: opacity 180ms ease, transform 180ms ease;
 }
@@ -110,7 +161,7 @@ const auraStyle = computed(() => ({
   bottom: 11%;
   width: 62%;
   height: 16%;
-  border: 1px solid rgba(106, 214, 255, 0.36);
+  border: 1px solid var(--ring-color);
   border-radius: 50%;
   transform: translateX(-50%) rotateX(68deg);
   box-shadow: 0 0 24px rgba(70, 180, 255, 0.25);
@@ -120,6 +171,26 @@ const auraStyle = computed(() => ({
   bottom: 18%;
   width: 46%;
   opacity: 0.55;
+}
+
+.speech-meter {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  gap: 3px;
+  align-items: end;
+  height: 32px;
+  opacity: 0.72;
+}
+
+.speech-meter span {
+  width: 3px;
+  height: 18px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #bff8ff, rgba(98, 230, 255, 0.18));
+  transform-origin: bottom;
+  transition: transform 80ms ease-out;
 }
 
 .body {
@@ -141,7 +212,7 @@ const auraStyle = computed(() => ({
   height: 74%;
   border-radius: 45% 45% 18% 18%;
   background:
-    linear-gradient(135deg, rgba(47, 95, 154, 0.95), rgba(23, 39, 70, 0.95)),
+    linear-gradient(135deg, var(--jacket-start), var(--jacket-end)),
     radial-gradient(circle at 50% 0, rgba(84, 210, 255, 0.42), transparent 38%);
   border: 1px solid rgba(135, 213, 255, 0.22);
   box-shadow: inset 0 18px 42px rgba(148, 220, 255, 0.13), 0 18px 42px rgba(0, 0, 0, 0.26);
@@ -198,7 +269,7 @@ const auraStyle = computed(() => ({
 .hair-back {
   inset: 0 2% 16%;
   border-radius: 48% 48% 34% 34%;
-  background: linear-gradient(140deg, #13233d, #05080f 72%);
+  background: linear-gradient(140deg, var(--hair-start), var(--hair-end) 72%);
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.35);
 }
 
@@ -208,7 +279,7 @@ const auraStyle = computed(() => ({
   width: 112%;
   height: 38%;
   border-radius: 48% 48% 30% 30%;
-  background: linear-gradient(155deg, #1d3458, #070b14 74%);
+  background: linear-gradient(155deg, var(--hair-start), var(--hair-end) 74%);
   clip-path: polygon(0 0, 100% 0, 94% 62%, 75% 42%, 60% 76%, 42% 38%, 24% 72%, 7% 48%);
 }
 
@@ -266,7 +337,7 @@ const auraStyle = computed(() => ({
   aspect-ratio: 1;
   transform: translate(-50%, -50%);
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 32%, #baf6ff 0 13%, #1478a8 14% 48%, #081527 49%);
+  background: radial-gradient(circle at 35% 32%, var(--iris-start) 0 13%, var(--iris-mid) 14% 48%, #081527 49%);
 }
 
 .nose {

@@ -14,17 +14,19 @@ qwen-digital-human/
 
 ## 1. 准备 Ollama
 
-默认 LLM provider 是本地 Ollama：
+默认 LLM provider 是本地 Ollama 进程，但模型优先使用 Ollama Cloud 托管模型：
 
 ```bash
 ollama serve
-ollama pull qwen2.5:7b
+ollama pull gpt-oss:120b-cloud
 ```
 
-如果你已有其他本地模型，可设置：
+如果你已有其他 Cloud 或本地模型，可设置：
 
 ```bash
 export OLLAMA_MODEL="your-model"
+export OLLAMA_PREFER_CLOUD=true
+export OLLAMA_CLOUD_MODELS="gpt-oss:120b-cloud,gpt-oss:20b-cloud,qwen3-coder:480b-cloud"
 ```
 
 ## 2. 启动 Python 后端

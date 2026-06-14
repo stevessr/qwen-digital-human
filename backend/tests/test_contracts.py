@@ -81,7 +81,7 @@ def test_models_status_reports_external_llm_service_only(client: TestClient) -> 
     assert "TTS" not in models[0]["name"]
 
 
-def test_ollama_status_lists_selectable_local_models(
+def test_ollama_status_prioritizes_cloud_candidates(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     async def fake_fetch_ollama_tags(
@@ -112,21 +112,34 @@ def test_ollama_status_lists_selectable_local_models(
         )
 
     monkeypatch.setattr(ModelManager, "_fetch_ollama_tags", fake_fetch_ollama_tags)
-    test_client = TestClient(create_app(_settings(tmp_path, llm_provider="ollama")))
+    test_client = TestClient(
+        create_app(
+            _settings(
+                tmp_path,
+                llm_provider="ollama",
+                ollama_model="gpt-oss:120b-cloud",
+                llm_model="gpt-oss:120b-cloud",
+            )
+        )
+    )
 
     response = test_client.get("/api/models/status")
 
     assert response.status_code == 200
     models = response.json()
-    assert {model["name"] for model in models} == {"qwen2.5:7b", "llama3.2:latest"}
+    assert {"qwen2.5:7b", "llama3.2:latest", "gpt-oss:120b-cloud"} <= {
+        model["name"] for model in models
+    }
+    assert models[0]["cloud_hosted"] is True
     selected = next(model for model in models if model["selected"])
-    assert selected["name"] == "qwen2.5:7b"
+    assert selected["name"] == "gpt-oss:120b-cloud"
+    assert selected["cloud_hosted"] is True
+    assert selected["installed"] is False
     assert selected["service_available"] is True
-    assert len(selected["options"]) == 2
-    assert selected["options"][0]["name"] == "llama3.2:latest"
+    assert selected["options"][0]["cloud_hosted"] is True
 
 
-def test_select_ollama_model_reconfigures_chat_backend(
+def test_select_ollama_cloud_model_reconfigures_chat_backend(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     async def fake_fetch_ollama_tags(
@@ -145,14 +158,15 @@ def test_select_ollama_model_reconfigures_chat_backend(
     monkeypatch.setattr(ModelManager, "_fetch_ollama_tags", fake_fetch_ollama_tags)
     test_client = TestClient(create_app(_settings(tmp_path, llm_provider="ollama")))
 
-    response = test_client.post("/api/models/select", json={"name": "llama3.2:latest"})
+    response = test_client.post("/api/models/select", json={"name": "gpt-oss:120b-cloud"})
 
     assert response.status_code == 200
-    assert response.json()["model"]["name"] == "llama3.2:latest"
+    assert response.json()["model"]["name"] == "gpt-oss:120b-cloud"
+    assert response.json()["model"]["cloud_hosted"] is True
     state = test_client.app.state.qdh
-    assert state.settings.ollama_model == "llama3.2:latest"
+    assert state.settings.ollama_model == "gpt-oss:120b-cloud"
     assert isinstance(state.llm.provider, OllamaProvider)
-    assert state.llm.provider.model == "llama3.2:latest"
+    assert state.llm.provider.model == "gpt-oss:120b-cloud"
 
 
 def test_context_top_k_zero_returns_empty(client: TestClient) -> None:
@@ -170,7 +184,13 @@ def test_map_empty_query_returns_error(client: TestClient) -> None:
     assert "error" in response.json()
 
 
-def _settings(tmp_path: Path, llm_provider: str) -> Settings:
+def _settings(
+    tmp_path: Path,
+    llm_provider: str,
+    *,
+    ollama_model: str = "qwen2.5:7b",
+    llm_model: str = "qwen2.5:7b",
+) -> Settings:
     return Settings(
         repo_root=tmp_path,
         static_dir=tmp_path / "static",
@@ -178,9 +198,9 @@ def _settings(tmp_path: Path, llm_provider: str) -> Settings:
         port=3000,
         llm_provider=llm_provider,
         ollama_base_url="http://127.0.0.1:11434",
-        ollama_model="qwen2.5:7b",
+        ollama_model=ollama_model,
         llm_base_url="",
         llm_api_key="",
-        llm_model="qwen2.5:7b",
+        llm_model=llm_model,
         llm_timeout_seconds=5.0,
     )

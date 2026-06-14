@@ -9,7 +9,7 @@ function normalizeIntentText(text: string): string {
 
 /**
  * Detect avatar intents from user text
- * Returns array of detected intents (expressions, motions, model switches)
+ * Returns array of detected intents (expressions, motions, persona switches)
  */
 export function detectAvatarIntents(text: string): AvatarIntent[] {
   const normalized = normalizeIntentText(text)
@@ -19,22 +19,22 @@ export function detectAvatarIntents(text: string): AvatarIntent[] {
   const lower = normalized.toLowerCase()
   const intents: AvatarIntent[] = []
 
-  // Model switch cycle
+  // Persona switch cycle
   if (
-    /切换.*模型|换.*模型|模型.*切换|切换头像|换头像|切换角色|换角色|下一个模型|下一只|换一个|切到下一个/.test(
+    /切换.*形象|换.*形象|形象.*切换|切换头像|换头像|切换角色|换角色|下一个形象|换一个|切到下一个/.test(
       compact
     )
   ) {
-    intents.push({ kind: 'switch_model_cycle', label: '切换模型' })
+    intents.push({ kind: 'switch_persona_cycle', label: '切换形象' })
   }
 
-  // Specific model switch
-  if (/shizuku/.test(lower) || /可爱|萌|软萌|甜|少女|清新/.test(compact)) {
-    intents.push({ kind: 'switch_model', modelKey: 'shizuku', label: '切到 Shizuku' })
-  } else if (/haru\s*0?1/.test(lower) || /正式|专业|稳重|讲解|导览|地图讲解/.test(compact)) {
-    intents.push({ kind: 'switch_model', modelKey: 'haru01', label: '切到 Haru 01' })
-  } else if (/haru\s*0?2/.test(lower) || /活泼|元气|俏皮|灵动|元气满满/.test(compact)) {
-    intents.push({ kind: 'switch_model', modelKey: 'haru02', label: '切到 Haru 02' })
+  // Specific persona switch
+  if (/专业|稳重|讲解|导览|地图讲解|professional|guide/.test(compact) || /professional|guide/.test(lower)) {
+    intents.push({ kind: 'switch_persona', personaKey: 'professional', label: '专业导览员' })
+  } else if (/活泼|元气|俏皮|灵动|元气满满|energetic/.test(compact) || /energetic/.test(lower)) {
+    intents.push({ kind: 'switch_persona', personaKey: 'energetic', label: '元气助手' })
+  } else if (/亲和|默认|地图助手|清新|自然|guide/.test(compact) || /default/.test(lower)) {
+    intents.push({ kind: 'switch_persona', personaKey: 'guide', label: '地图讲解员' })
   }
 
   // Expressions

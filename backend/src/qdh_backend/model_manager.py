@@ -11,7 +11,7 @@ class OllamaServiceUnavailable(RuntimeError):
 
 
 class OllamaModelNotFound(RuntimeError):
-    """Raised when a requested Ollama model is not installed locally."""
+    """Raised when a requested Ollama model is not available or configured."""
 
 
 class ModelManager:
@@ -36,29 +36,36 @@ class ModelManager:
                 f"Ollama 服务不可用：{error or '无法连接到本地 Ollama HTTP API'}"
             )
 
-        options = self._tags_to_options(tags)
+        options = self._ollama_options(tags)
         selected_option = self._find_option(selected_name, options)
         if not selected_option:
             available = "、".join(option.name for option in options) or "无"
             raise OllamaModelNotFound(
-                f"本地 Ollama 未安装模型 {selected_name}。当前可选模型：{available}"
+                f"Ollama 未发现或未配置模型 {selected_name}。当前可选模型：{available}"
             )
 
         self.settings.llm_provider = "ollama"
         self.settings.ollama_model = selected_option.name
         self.settings.llm_model = selected_option.name
+        status_message = (
+            f"已切换到 Ollama Cloud 托管模型 {selected_option.name}。"
+            if selected_option.cloud_hosted
+            else f"已切换到本地 Ollama 模型 {selected_option.name}。"
+        )
+        if selected_option.cloud_hosted and not selected_option.installed:
+            status_message += f" 如首次使用，请先运行 ollama pull {selected_option.name}。"
         return self._ollama_model_info(
             option=selected_option,
             options=options,
             selected_name=selected_option.name,
             service_available=True,
-            status_message=f"已切换到本地 Ollama 模型 {selected_option.name}。",
+            status_message=status_message,
         )
 
     async def _ollama_library(self) -> list[ModelInfo]:
         selected_name = self.settings.ollama_model
         service_available, tags, error = await self._fetch_ollama_tags()
-        options = self._tags_to_options(tags)
+        options = self._ollama_options(tags)
 
         if not service_available:
             status_note = (
@@ -69,7 +76,7 @@ class ModelManager:
             return [
                 self._configured_ollama_info(
                     selected_name=selected_name,
-                    options=[],
+                    options=options,
                     service_available=False,
                     status_message=status_note,
                 )
@@ -98,7 +105,7 @@ class ModelManager:
                     service_available=True,
                     status_message=(
                         f"Ollama 服务已连接，但未发现当前配置模型 {selected_name}。"
-                        f"请选择下方已安装模型，或运行 ollama pull {selected_name}。"
+                        f"请选择下方模型，或运行 ollama pull {selected_name}。"
                     ),
                 )
             )
@@ -109,11 +116,7 @@ class ModelManager:
                 options=options,
                 selected_name=selected_name,
                 service_available=True,
-                status_message=(
-                    f"当前聊天后端正在使用 {option.name}。"
-                    if self._model_name_matches(selected_name, option.name)
-                    else "该模型已安装，可切换为当前聊天后端。"
-                ),
+                status_message=self._ollama_status_message(option, selected_name),
             )
             for option in options
         )
@@ -139,24 +142,29 @@ class ModelManager:
         service_available: bool,
         status_message: str,
     ) -> ModelInfo:
+        cloud_hosted = _is_cloud_model(selected_name)
+        provider_label = "Ollama Cloud" if cloud_hosted else "Ollama"
+        provider_desc = (
+            "LLM 推理由 Ollama Cloud 托管模型提供；后端通过本地 Ollama HTTP API 调用，"
+            if cloud_hosted
+            else "LLM 推理由本地 Ollama 服务提供；后端只调用 Ollama HTTP API，"
+        )
         return ModelInfo(
             name=selected_name,
-            description=(
-                "LLM 推理由本地 Ollama 服务提供；后端只调用 Ollama HTTP API，"
-                f"不加载 GGUF/MNN 推理模型。{status_message}"
-            ),
+            description=f"{provider_desc}不加载 GGUF/MNN 推理模型。{status_message}",
             url=self.settings.ollama_base_url,
-            size="由 Ollama 管理",
+            size="Ollama Cloud" if cloud_hosted else "由 Ollama 管理",
             installed=False,
             progress=None,
             expected_sha256="",
-            provider="Ollama",
+            provider=provider_label,
             capability="LLM 推理",
             managed_by="ollama",
             downloadable=False,
             verifiable=False,
             deletable=False,
             selected=True,
+            cloud_hosted=cloud_hosted,
             service_available=service_available,
             status_message=status_message,
             options=options,
@@ -182,24 +190,30 @@ class ModelManager:
             if part
         ]
         detail_text = f"（{' / '.join(detail_parts)}）" if detail_parts else ""
+        provider_label = "Ollama Cloud" if option.cloud_hosted else "Ollama"
         return ModelInfo(
             name=option.name,
             description=(
-                "LLM 推理由本地 Ollama 服务提供；后端只调用 Ollama HTTP API，"
+                "LLM 推理由 Ollama Cloud 托管模型提供；后端通过本地 Ollama HTTP API 调用，"
+                if option.cloud_hosted
+                else "LLM 推理由本地 Ollama 服务提供；后端只调用 Ollama HTTP API，"
+            )
+            + (
                 f"不加载 GGUF/MNN 推理模型。{status_message}{detail_text}"
             ),
             url=self.settings.ollama_base_url,
-            size=option.size or "由 Ollama 管理",
-            installed=True,
+            size=option.size or ("Ollama Cloud" if option.cloud_hosted else "由 Ollama 管理"),
+            installed=option.installed,
             progress=None,
             expected_sha256=option.digest,
-            provider="Ollama",
+            provider=provider_label,
             capability="LLM 推理",
             managed_by="ollama",
             downloadable=False,
             verifiable=False,
             deletable=False,
             selected=selected,
+            cloud_hosted=option.cloud_hosted,
             service_available=service_available,
             status_message=status_message,
             options=options,
@@ -260,6 +274,28 @@ class ModelManager:
         del name, expected_sha256
         return False
 
+    def _ollama_options(self, tags: list[dict[str, object]]) -> list[OllamaModelOption]:
+        options_by_name = {option.name: option for option in self._tags_to_options(tags)}
+        for name in self.settings.ollama_cloud_models:
+            if name in options_by_name:
+                installed = options_by_name[name]
+                options_by_name[name] = installed.model_copy(
+                    update={
+                        "cloud_hosted": True,
+                        "size": installed.size
+                        if installed.size != "由 Ollama 管理"
+                        else "Ollama Cloud",
+                    }
+                )
+                continue
+            options_by_name[name] = OllamaModelOption(
+                name=name,
+                size="Ollama Cloud",
+                installed=False,
+                cloud_hosted=True,
+            )
+        return sorted(options_by_name.values(), key=self._option_sort_key)
+
     def _tags_to_options(self, tags: list[dict[str, object]]) -> list[OllamaModelOption]:
         options: list[OllamaModelOption] = []
         for item in tags:
@@ -274,6 +310,8 @@ class ModelManager:
                     name=name,
                     size=_format_size(size_bytes),
                     size_bytes=size_bytes,
+                    installed=True,
+                    cloud_hosted=_is_cloud_model(name),
                     digest=str(item.get("digest") or ""),
                     modified_at=str(item.get("modified_at") or ""),
                     family=str(details_map.get("family") or ""),
@@ -282,6 +320,32 @@ class ModelManager:
                 )
             )
         return sorted(options, key=lambda option: option.name.lower())
+
+    def _ollama_status_message(self, option: OllamaModelOption, selected_name: str) -> str:
+        selected = self._model_name_matches(selected_name, option.name)
+        if option.cloud_hosted:
+            if selected and option.installed:
+                return f"当前聊天后端优先使用 Ollama Cloud 托管模型 {option.name}。"
+            if selected:
+                return (
+                    f"当前聊天后端已配置为 Ollama Cloud 托管模型 {option.name}；"
+                    f"如首次使用，请先运行 ollama pull {option.name}。"
+                )
+            if option.installed:
+                return "该 Ollama Cloud 托管模型已可用，可切换为当前聊天后端。"
+            return f"Ollama Cloud 托管候选模型；首次使用前请运行 ollama pull {option.name}。"
+        if selected:
+            return f"当前聊天后端正在使用本地 Ollama 模型 {option.name}。"
+        return "该本地模型已安装，可切换为当前聊天后端。"
+
+    def _option_sort_key(self, option: OllamaModelOption) -> tuple[int, int, str]:
+        cloud_rank = 0 if self.settings.ollama_prefer_cloud and option.cloud_hosted else 1
+        installed_rank = 0 if option.installed else 1
+        cloud_order = {
+            name: index
+            for index, name in enumerate(self.settings.ollama_cloud_models)
+        }.get(option.name, len(self.settings.ollama_cloud_models))
+        return cloud_rank, installed_rank if not option.cloud_hosted else cloud_order, option.name.lower()
 
     def _find_option(
         self, selected_name: str, options: list[OllamaModelOption]
@@ -326,3 +390,8 @@ def _format_size(size_bytes: int | None) -> str:
             break
         size /= 1024
     return f"{size:.1f} {unit}" if unit != "B" else f"{int(size)} B"
+
+
+def _is_cloud_model(name: str) -> bool:
+    normalized = name.strip().lower()
+    return normalized.endswith("-cloud") or normalized.endswith(":cloud")

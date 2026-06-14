@@ -1,6 +1,7 @@
-import { ref, readonly } from 'vue'
+import { readonly, ref } from 'vue'
 import { playAudioBlob } from '@/utils/audio'
 import { playTTS } from '@/api/chat'
+import { useAvatarStore } from '@/stores/avatar'
 
 /**
  * Browser TTS using SpeechSynthesis API
@@ -55,23 +56,44 @@ export async function playCloudTTS(text: string): Promise<void> {
  * Composable for TTS playback
  */
 export function useTTS() {
+  const avatarStore = useAvatarStore()
   const isPlaying = ref(false)
+  let mouthTimer: ReturnType<typeof window.setInterval> | null = null
+
+  const startMouthAnimation = () => {
+    stopMouthAnimation()
+    mouthTimer = window.setInterval(() => {
+      avatarStore.updateExpression({
+        mouth_open: 0.18 + Math.random() * 0.46,
+        smile: Math.max(avatarStore.expression.smile, 0.18),
+      })
+    }, 120)
+  }
+
+  const stopMouthAnimation = () => {
+    if (mouthTimer) {
+      window.clearInterval(mouthTimer)
+      mouthTimer = null
+    }
+    avatarStore.updateExpression({ mouth_open: 0.04 })
+  }
 
   const play = async (text: string, useBrowserTTS = false) => {
     if (isPlaying.value) return
     isPlaying.value = true
+    startMouthAnimation()
 
     try {
       if (useBrowserTTS) {
         const success = await playBrowserTTS(text)
         if (!success) {
-          // Fallback to cloud TTS
           await playCloudTTS(text)
         }
       } else {
         await playCloudTTS(text)
       }
     } finally {
+      stopMouthAnimation()
       isPlaying.value = false
     }
   }

@@ -4,6 +4,8 @@ export interface OllamaModelOption {
   name: string
   size: string
   size_bytes?: number | null
+  installed?: boolean
+  cloud_hosted?: boolean
   digest?: string
   modified_at?: string
   family?: string
@@ -26,6 +28,7 @@ export interface ManagedModelInfo {
   verifiable?: boolean
   deletable?: boolean
   selected?: boolean
+  cloud_hosted?: boolean
   service_available?: boolean | null
   status_message?: string | null
   options?: OllamaModelOption[]
@@ -66,11 +69,21 @@ export function useModelManagement() {
         optionMap.set(model.name, {
           name: model.name,
           size: model.size,
+          installed: model.installed,
+          cloud_hosted: model.cloud_hosted,
           digest: model.expected_sha256,
         })
       }
     }
-    return [...optionMap.values()].sort((left, right) => left.name.localeCompare(right.name))
+    return [...optionMap.values()].sort((left, right) => {
+      const leftCloudRank = left.cloud_hosted ? 0 : 1
+      const rightCloudRank = right.cloud_hosted ? 0 : 1
+      if (leftCloudRank !== rightCloudRank) return leftCloudRank - rightCloudRank
+      const leftInstalledRank = left.installed ? 0 : 1
+      const rightInstalledRank = right.installed ? 0 : 1
+      if (leftInstalledRank !== rightInstalledRank) return leftInstalledRank - rightInstalledRank
+      return left.name.localeCompare(right.name)
+    })
   })
 
   const loadModels = async () => {
