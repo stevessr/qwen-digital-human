@@ -4,47 +4,85 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build & Run
 
+Default backend is now Python/FastAPI:
+
 ```bash
-cargo run          # Build and start server at http://127.0.0.1:3000
-cargo build        # Build only (debug)
-cargo build --release  # Optimized build
+cd backend
+uv sync --extra dev
+uv run uvicorn qdh_backend.main:app --host 127.0.0.1 --port 3000
+uv run ruff check .
+uv run pytest
 ```
 
-Requires `DASHSCOPE_API_KEY` env var for cloud LLM/TTS features. A C++ compiler is required for `llama-cpp-2` (builds llama.cpp from source).
+The server serves the existing static frontend at http://127.0.0.1:3000.
+
+Default LLM provider is local Ollama:
+
+```bash
+ollama serve
+ollama pull qwen2.5:7b
+```
+
+Useful environment variables:
+
+```bash
+LLM_PROVIDER=ollama
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+OLLAMA_MODEL=qwen2.5:7b
+LLM_PROVIDER=openai_compatible
+LLM_BASE_URL=https://api.example.com/v1
+LLM_API_KEY=your-api-key
+LLM_MODEL=qwen-max
+```
+
+The old Rust backend remains available as a reference/fallback:
+
+```bash
+cargo run
+cargo build --release
+```
 
 ## Architecture
 
-An Axum web server (`src/main.rs`) with a static WebGPU frontend (`static/`). The pipeline processes speech → LLM → TTS → avatar rendering:
+The primary backend is a FastAPI app in `backend/src/qdh_backend/` with a static WebGPU frontend in `static/`. The first migration phase preserves the existing browser API contracts while moving LLM calls to external providers, defaulting to local Ollama.
 
-- **`src/main.rs`** — Axum server, route definitions, `AppState` (shared engine instances)
-- **`src/llm.rs`** — `LlmEngine`: local inference via llama-cpp-2 (Qwen3.5-0.8B GGUF) in fast mode; DashScope API (`qwen-max`) in slow/cloud mode
-- **`src/rag.rs`** — `RagEngine`: in-memory document retrieval (stub implementation)
-- **`src/mcp.rs`** — Model Context Protocol structures (empty placeholder)
-- **`src/tts.rs`** — TTS via DashScope Sambert API (`sambert-zhichu-v1`)
-- **`src/asr.rs`** — `SherpaAsrEngine`: offline + streaming ASR via Sherpa-MNN (stub)
-- **`src/a2bs.rs`** — `A2bsEngine`: Audio-to-Body-Synthesis, extracts facial expression and posture from audio (stub)
-- **`src/nnr.rs`** — `NnrEngine`: Neural Network Rendering, packages expression/posture/audio for WebGPU frontend
-- **`src/model_manager.rs`** — `ModelManager`: model catalog (7 GGUF/MNN models from ModelScope), download with progress, SHA256 verification, wget fallback
-- **`src/device.rs`** — GPU device selection: CUDA → Metal (macOS) → CPU
+- **`backend/src/qdh_backend/main.py`** — FastAPI app factory, route registration, static file mount
+- **`backend/src/qdh_backend/settings.py`** — environment settings, repo/static/models path resolution
+- **`backend/src/qdh_backend/llm.py`** — Ollama/OpenAI-compatible providers, prompt composition, `<think>` filtering
+- **`backend/src/qdh_backend/stream_protocol.py`** — `qdh-binary-v2` binary stream encoder compatible with `static/main.js`
+- **`backend/src/qdh_backend/routes/chat.py`** — `/api/chat` JSON and binary streaming chat
+- **`backend/src/qdh_backend/routes/pipeline.py`** — `/api/pipeline` ASR → RAG → LLM → TTS → avatar frame compatibility pipeline
+- **`backend/src/qdh_backend/routes/tts.py`** — `/api/tts`, currently silence WAV compatibility provider
+- **`backend/src/qdh_backend/routes/asr_ws.py`** — `/api/ws/asr` WebSocket protocol compatibility layer
+- **`backend/src/qdh_backend/model_manager.py`** — model catalog, download progress, deletion, SHA256 verification
+- **`backend/src/qdh_backend/map_search.py`** — Nominatim/OpenStreetMap search wrapper
+- **`backend/src/qdh_backend/rag.py`** — lightweight RAG compatibility service
+- **`backend/src/qdh_backend/avatar.py`** — A2BS/NNR-compatible render frame preparation
+- **`src/`** — old Rust/Axum implementation retained for reference and rollback
 
 ### API Routes
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| POST | `/api/chat` | Chat with LLM (supports RAG context) |
-| POST | `/api/tts` | Text-to-speech |
-| POST | `/api/pipeline` | Full pipeline: ASR → RAG → LLM → TTS → A2BS → NNR |
-| GET | `/api/ws/asr` | WebSocket for streaming ASR |
+| GET | `/health` | Python backend health check |
+| POST | `/api/chat` | Chat with LLM; JSON or `qdh-binary-v2` stream |
+| POST | `/api/tts` | Text-to-speech compatibility endpoint returning `audio/wav` |
+| POST | `/api/pipeline` | Full pipeline: ASR transcript → RAG → LLM → TTS → avatar frame |
+| GET | `/api/ws/asr` | WebSocket ASR protocol compatibility layer |
 | GET | `/api/models/status` | Model library with install progress |
 | POST | `/api/models/download` | Download model from URL |
 | POST | `/api/models/delete` | Delete model file |
 | POST | `/api/models/verify` | SHA256 model verification |
+| POST | `/api/models/preload/asr` | ASR preload compatibility endpoint |
+| POST | `/api/models/preload/tts` | TTS preload compatibility endpoint |
+| POST | `/api/map/search` | Nominatim map search |
+| POST | `/api/context/retrieve` | RAG context retrieval compatibility endpoint |
 
 ### Key Design Decisions
 
-- **`/api/pipeline`** is the main endpoint combining all engines into one response (transcription, LLM reply, avatar render frame with base64 audio)
-- Many engine implementations (ASR, RAG, A2BS, NNR, MCP) are stubs returning hardcoded data — the project scaffold is in place but most inference is not wired
-- Model files are stored in `models/` directory, sourced from ModelScope, skipped if already present
-- The llama-cpp-2 crate compiles llama.cpp C++ source natively; it requires CMake and a C++17 compiler
-- Model download has a double fallback: native reqwest streaming → wget CLI
-- GPU offloading uses `with_n_gpu_layers(100)` to push all layers to GPU when CUDA/Metal is available
+- Keep `static/` unchanged and serve it from the Python backend on the same origin.
+- Preserve `qdh-binary-v2` (`application/octet-stream`, `X-Stream-Format: qdh-binary-v2`) because `static/main.js` decodes binary frames directly.
+- Keep the old `fast_mode` request field for compatibility, but provider selection now comes from environment variables.
+- Default LLM is local Ollama; `openai_compatible` supports external APIs with `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL`.
+- ASR, TTS, RAG, A2BS, and NNR are compatibility-first in the first Python phase; upgrade them behind provider/service boundaries later.
+- Model files remain under `models/`; the model page still expects the 7 legacy GGUF/MNN entries.
