@@ -76,8 +76,8 @@ const handleKeyPress = (e: KeyboardEvent) => {
         </div>
       </div>
       <div class="info-links">
-        <a href="/config.html" target="_blank">配置网页</a>
-        <a href="/models.html" target="_blank">管理控制台</a>
+        <RouterLink to="/config">配置网页</RouterLink>
+        <RouterLink to="/models">管理控制台</RouterLink>
       </div>
     </div>
 
@@ -93,7 +93,7 @@ const handleKeyPress = (e: KeyboardEvent) => {
 
     <div class="opencv-notice">
       OpenCV 眼部追踪已迁移到
-      <a href="/config.html" target="_blank">配置网页</a>
+      <RouterLink to="/config">配置网页</RouterLink>
       。开启后，主页面会自动使用摄像头跟踪人眼并驱动数字人姿态。
     </div>
 

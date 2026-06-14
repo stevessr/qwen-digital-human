@@ -37,11 +37,7 @@ export default defineConfig({
         target: 'http://127.0.0.1:3000',
         changeOrigin: true,
       },
-      // '/vendor' removed - served from public/vendor/ during dev
-      '/live2d_models': {
-        target: 'http://127.0.0.1:3000',
-        changeOrigin: true,
-      },
+      // '/vendor' and '/live2d_models' are served from public/ during dev.
     },
   },
   build: {

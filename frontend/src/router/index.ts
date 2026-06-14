@@ -8,6 +8,14 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/components/MainLayout.vue'),
   },
   {
+    path: '/config.html',
+    redirect: '/config',
+  },
+  {
+    path: '/models.html',
+    redirect: '/models',
+  },
+  {
     path: '/config',
     name: 'Config',
     component: () => import('@/views/ConfigPage.vue'),
