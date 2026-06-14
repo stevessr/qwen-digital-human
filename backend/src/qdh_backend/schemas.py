@@ -124,6 +124,12 @@ class ModelInfo(CompatModel):
     installed: bool
     progress: float | None = None
     expected_sha256: str = ""
+    provider: str | None = None
+    capability: str | None = None
+    managed_by: str | None = None
+    downloadable: bool = False
+    verifiable: bool = False
+    deletable: bool = False
 
 
 class DownloadRequest(CompatModel):

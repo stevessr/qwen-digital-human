@@ -127,7 +127,7 @@ const {
           </ASpace>
 
           <p class="legend">
-            TopK 设为 0 会让 RAG 返回空上下文。浏览器 ASR 依赖 SpeechRecognition / webkitSpeechRecognition，开启后会优先使用浏览器实时转写；若浏览器不支持，会继续回退到本地 Qwen ASR。浏览器 TTS 开启后，主页面会直接使用 SpeechSynthesis 发声。
+            TopK 设为 0 会让 RAG 返回空上下文。ASR 由浏览器 SpeechRecognition / webkitSpeechRecognition 提供；TTS 由浏览器 SpeechSynthesis 提供。后端不再加载 ASR/TTS 推理模型，只通过本地 Ollama 调用 LLM 推理服务。
           </p>
         </AForm>
       </ACard>

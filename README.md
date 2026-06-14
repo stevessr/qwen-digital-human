@@ -7,15 +7,15 @@
 - **默认后端**：`backend/`，FastAPI + httpx + Ollama/OpenAI-compatible provider。
 - **旧后端参考**：`src/`，原 Rust/Axum + llama-cpp-2/Candle 实现仍保留。
 - **静态前端**：`static/`，由 Python 后端同源托管。
-- **模型目录**：`models/`，仍用于模型管理页面和本地资产状态。
+- **推理服务**：后端不再加载本地模型文件；LLM 推理由本地 Ollama 服务提供，ASR/TTS 由浏览器提供。
 
 ## 功能
 
 - Chat：`POST /api/chat`，支持非流式 JSON 和 `qdh-binary-v2` 二进制流式响应。
 - Pipeline：`POST /api/pipeline`，保持 transcription、LLM reply、avatar render frame 契约。
-- TTS：`POST /api/tts` 返回 `audio/wav`；第一阶段为静音 WAV 兼容实现。
-- ASR WebSocket：`GET /api/ws/asr` 保持连接/commit/reset 协议；第一阶段尚未接真实 ASR 模型。
-- 模型管理：`/api/models/*` 保持 7 个模型项、下载、删除、校验接口。
+- TTS：默认由浏览器 `SpeechSynthesis` 提供；`POST /api/tts` 仅保留兼容静音 WAV，不做模型推理。
+- ASR：默认由浏览器 `SpeechRecognition` / `webkitSpeechRecognition` 提供；`GET /api/ws/asr` 仅保留兼容协议，不做模型推理。
+- 推理服务状态：`/api/models/status` 展示当前 Ollama/OpenAI-compatible LLM 服务状态，不再提供后端模型下载、删除、校验。
 - 地图搜索：`POST /api/map/search` 调用 Nominatim。
 - RAG 上下文：`POST /api/context/retrieve` 保留接口和 `top_k=0` 空上下文语义。
 

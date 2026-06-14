@@ -1,82 +1,24 @@
 <script setup lang="ts">
-import { Modal, message } from 'ant-design-vue'
-import { RUNTIME_RESOURCES, type RuntimeResourceAction } from '@/constants/config'
+import { RUNTIME_RESOURCES } from '@/constants/config'
 import { useModelManagement, type ManagedModelInfo } from '@/composables/useModelManagement'
 
-const {
-  models,
-  isLoading,
-  hasDownloadingModel,
-  loadModels,
-  downloadModel,
-  deleteModel,
-  verifyModel,
-  preloadRuntimeModel,
-  isRuntimePreloading,
-} = useModelManagement()
+const { models, isLoading, loadModels } = useModelManagement()
 
 const openFile = (path: string) => {
   window.open(path, '_blank', 'noopener,noreferrer')
 }
 
-const isRuntimeActionLoading = (action: RuntimeResourceAction): boolean => (
-  action.preloadKind ? isRuntimePreloading(action.preloadKind) : false
+const serviceStatusColor = (model: ManagedModelInfo): string => (model.installed ? 'success' : 'error')
+
+const serviceStatusText = (model: ManagedModelInfo): string => (
+  model.installed ? '● 服务可用' : '○ 服务不可用'
 )
 
-const handleRuntimeAction = async (action: RuntimeResourceAction) => {
-  if (action.path) {
-    openFile(action.path)
-    return
-  }
-
-  if (!action.preloadKind) return
-
-  try {
-    await preloadRuntimeModel(action.preloadKind)
-    message.success(`${action.label} 已完成`)
-  } catch (error) {
-    message.error(error instanceof Error ? error.message : '预热失败')
-  }
-}
-
-const handleDownloadModel = async (model: ManagedModelInfo) => {
-  try {
-    await downloadModel(model.name, model.url)
-    message.success(`已开始下载 ${model.name}`)
-  } catch (error) {
-    message.error(error instanceof Error ? error.message : '下载启动失败')
-  }
-}
-
-const confirmDeleteModel = (model: ManagedModelInfo) => {
-  Modal.confirm({
-    title: `确定要删除模型 ${model.name} 吗？`,
-    content: '删除后如需使用，需要重新下载。',
-    okText: '删除',
-    okType: 'danger',
-    cancelText: '取消',
-    async onOk() {
-      try {
-        await deleteModel(model.name)
-        message.success(`已删除 ${model.name}`)
-      } catch (error) {
-        message.error(error instanceof Error ? error.message : '删除失败')
-      }
-    },
-  })
-}
-
-const handleVerifyModel = async (model: ManagedModelInfo) => {
-  try {
-    const ok = await verifyModel(model.name, model.expected_sha256)
-    if (ok) {
-      message.success('校验成功：文件完整且校验和（SHA256）匹配。')
-    } else {
-      message.error('校验失败：文件损坏、不完整或校验和不匹配。')
-    }
-  } catch (error) {
-    message.error(error instanceof Error ? error.message : '校验失败')
-  }
+const providerLabel = (model: ManagedModelInfo): string => {
+  if (model.managed_by === 'ollama') return '本地 Ollama'
+  if (model.managed_by === 'browser') return '浏览器'
+  if (model.provider) return model.provider
+  return '外部推理服务'
 }
 </script>
 
@@ -84,8 +26,10 @@ const handleVerifyModel = async (model: ManagedModelInfo) => {
   <div class="models-page">
     <header class="page-header">
       <div>
-        <h1>模型库管理</h1>
-        <p>统一管理本地推理、语音、Live2D 与 OpenCV 运行时资源。</p>
+        <h1>推理服务与浏览器能力</h1>
+        <p>
+          ASR 与 TTS 由浏览器提供；后端不再加载本地推理模型，只通过本地 Ollama 调用 LLM 推理服务。
+        </p>
       </div>
       <ASpace wrap>
         <AButton :loading="isLoading" @click="loadModels">刷新状态</AButton>
@@ -99,9 +43,9 @@ const handleVerifyModel = async (model: ManagedModelInfo) => {
     </header>
 
     <section class="runtime-section">
-      <h2>本地运行时资源</h2>
+      <h2>浏览器能力与前端资源</h2>
       <p class="section-desc">
-        这些资源由共享配置动态渲染；修改资源路径或新增资源时，只需要维护 constants，不再修改静态 HTML。
+        语音识别和语音合成都由浏览器 Web Speech APIs 提供；Live2D 与 OpenCV 仍使用前端内置静态资源。
       </p>
       <div class="runtime-grid">
         <ACard
@@ -111,13 +55,14 @@ const handleVerifyModel = async (model: ManagedModelInfo) => {
           :bordered="false"
         >
           <p>{{ resource.description }}</p>
-          <ASpace wrap>
+          <ATag v-if="resource.badge" color="success" class="runtime-badge">
+            {{ resource.badge }}
+          </ATag>
+          <ASpace v-if="resource.actions.length > 0" wrap>
             <AButton
               v-for="action in resource.actions"
               :key="`${resource.key}-${action.label}`"
-              :type="action.preloadKind ? 'primary' : 'default'"
-              :loading="isRuntimeActionLoading(action)"
-              @click="handleRuntimeAction(action)"
+              @click="action.path && openFile(action.path)"
             >
               {{ action.label }}
             </AButton>
@@ -128,11 +73,14 @@ const handleVerifyModel = async (model: ManagedModelInfo) => {
 
     <section class="model-section">
       <div class="section-title-row">
-        <h2>模型文件</h2>
-        <ATag v-if="hasDownloadingModel" color="processing">正在下载，自动刷新中</ATag>
+        <h2>本地 Ollama LLM 推理服务</h2>
+        <ATag color="blue">后端仅调用服务，不托管模型</ATag>
       </div>
+      <p class="section-desc service-desc">
+        这里展示后端当前连接的本地 Ollama 服务状态。模型下载、加载与推理由 Ollama 进程负责，不再由后端管理 GGUF/MNN 文件。
+      </p>
 
-      <AEmpty v-if="!isLoading && models.length === 0" description="暂无模型状态" />
+      <AEmpty v-if="!isLoading && models.length === 0" description="暂无推理服务状态" />
 
       <ACard
         v-for="model in models"
@@ -145,50 +93,18 @@ const handleVerifyModel = async (model: ManagedModelInfo) => {
             <h3>{{ model.name }}</h3>
             <p>{{ model.description }}</p>
             <div class="meta">
-              文件大小：{{ model.size }} |
-              状态：{{ model.installed ? '已就绪' : (model.progress !== null ? '下载中' : '缺失') }}
+              提供方：{{ providerLabel(model) }} |
+              能力：{{ model.capability || 'LLM 推理' }} |
+              服务地址：{{ model.url || '未配置' }}
             </div>
           </div>
 
           <div class="model-actions">
-            <ATag
-              :color="model.installed ? 'success' : (model.progress !== null ? 'processing' : 'error')"
-              class="status-tag"
-            >
-              {{ model.installed ? '● 已就绪' : (model.progress !== null ? `正在下载 ${Math.round(model.progress)}%` : '○ 缺失') }}
+            <ATag :color="serviceStatusColor(model)" class="status-tag">
+              {{ serviceStatusText(model) }}
             </ATag>
-            <ASpace wrap>
-              <AButton
-                v-if="model.installed"
-                @click="handleVerifyModel(model)"
-              >
-                校验
-              </AButton>
-              <AButton
-                v-if="model.installed"
-                danger
-                @click="confirmDeleteModel(model)"
-              >
-                删除
-              </AButton>
-              <AButton
-                type="primary"
-                :disabled="model.installed || model.progress !== null"
-                :loading="model.progress !== null"
-                @click="handleDownloadModel(model)"
-              >
-                {{ model.installed ? '无需下载' : (model.progress !== null ? '下载中...' : '一键下载') }}
-              </AButton>
-            </ASpace>
           </div>
         </div>
-
-        <AProgress
-          v-if="model.progress !== null"
-          :percent="Math.round(model.progress)"
-          status="active"
-          style="margin-top: 16px"
-        />
       </ACard>
     </section>
   </div>
@@ -276,12 +192,20 @@ const handleVerifyModel = async (model: ManagedModelInfo) => {
   line-height: 1.5;
 }
 
+.runtime-badge {
+  margin-bottom: 12px;
+}
+
 .section-title-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 12px;
+}
+
+.service-desc {
+  margin-bottom: 16px;
 }
 
 .model-card {

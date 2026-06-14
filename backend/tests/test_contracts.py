@@ -62,20 +62,16 @@ def test_pipeline_non_stream_contract(client: TestClient) -> None:
     assert len(data["render_frame"]["waveform"]) == 128
 
 
-def test_models_status_contract(client: TestClient) -> None:
+def test_models_status_reports_external_llm_service_only(client: TestClient) -> None:
     response = client.get("/api/models/status")
     assert response.status_code == 200
     models = response.json()
-    assert len(models) == 7
-    assert {
-        "name",
-        "description",
-        "url",
-        "size",
-        "installed",
-        "progress",
-        "expected_sha256",
-    } <= set(models[0])
+    assert len(models) == 1
+    assert models[0]["managed_by"] == "external"
+    assert models[0]["capability"] == "LLM 测试回复"
+    assert models[0]["downloadable"] is False
+    assert "ASR" not in models[0]["name"]
+    assert "TTS" not in models[0]["name"]
 
 
 def test_context_top_k_zero_returns_empty(client: TestClient) -> None:

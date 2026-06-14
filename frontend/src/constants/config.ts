@@ -51,8 +51,8 @@ export const DEFAULT_PROMPT_SETTINGS: PromptSettings = {
   context: '',
   use_rag_context: true,
   tts_enabled: true,
-  browser_tts_enabled: false,
-  browser_asr_mode: false,
+  browser_tts_enabled: true,
+  browser_asr_mode: true,
   collapse_think: true,
   rerank: {
     candidate_pool: 8,
@@ -128,28 +128,30 @@ export const LIVE2D_MODELS: Record<Live2DModelKey, Live2DModelSpec> = {
 export interface RuntimeResourceAction {
   label: string
   path?: string
-  preloadKind?: 'asr' | 'tts'
 }
 
 export interface RuntimeResource {
   key: string
   title: string
   description: string
+  badge?: string
   actions: RuntimeResourceAction[]
 }
 
 export const RUNTIME_RESOURCES: RuntimeResource[] = [
   {
-    key: 'qwen3-asr',
-    title: 'Qwen3-ASR',
-    description: '本地语音识别模型，缓存目录由后端自动管理。',
-    actions: [{ label: '预热下载 ASR', preloadKind: 'asr' }],
+    key: 'browser-asr',
+    title: '浏览器 ASR',
+    description: '语音识别由浏览器 SpeechRecognition / webkitSpeechRecognition 提供；后端不再下载、预热或加载 ASR 模型。',
+    badge: '浏览器提供',
+    actions: [],
   },
   {
-    key: 'qwen3-tts',
-    title: 'Qwen3-TTS',
-    description: '本地语音合成模型，首次使用时会自动拉取到缓存。',
-    actions: [{ label: '预热下载 TTS', preloadKind: 'tts' }],
+    key: 'browser-tts',
+    title: '浏览器 TTS',
+    description: '语音合成由浏览器 SpeechSynthesis 提供；后端不再下载、预热或加载 TTS 模型。',
+    badge: '浏览器提供',
+    actions: [],
   },
   ...Object.entries(LIVE2D_MODELS).map(([key, model]) => ({
     key: `live2d-${key}`,

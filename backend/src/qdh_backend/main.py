@@ -19,7 +19,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settings=settings,
         llm=LlmService(settings),
         rag=RagService(),
-        model_manager=ModelManager(settings.models_dir),
+        model_manager=ModelManager(settings),
     )
 
     app.include_router(chat.router)

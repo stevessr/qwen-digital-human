@@ -34,7 +34,6 @@ def _path_from_env(name: str, default: str, root: Path) -> Path:
 class Settings:
     repo_root: Path
     static_dir: Path
-    models_dir: Path
     host: str
     port: int
     llm_provider: str
@@ -44,8 +43,6 @@ class Settings:
     llm_api_key: str
     llm_model: str
     llm_timeout_seconds: float
-    asr_provider: str
-    tts_provider: str
 
 
 def load_settings() -> Settings:
@@ -68,7 +65,6 @@ def load_settings() -> Settings:
     return Settings(
         repo_root=root,
         static_dir=_path_from_env("STATIC_DIR", "static", root),
-        models_dir=_path_from_env("MODELS_DIR", "models", root),
         host=os.getenv("QDH_HOST", "127.0.0.1"),
         port=port,
         llm_provider=os.getenv("LLM_PROVIDER", "ollama").strip().lower() or "ollama",
@@ -78,6 +74,4 @@ def load_settings() -> Settings:
         llm_api_key=os.getenv("LLM_API_KEY", ""),
         llm_model=os.getenv("LLM_MODEL", os.getenv("OLLAMA_MODEL", "qwen2.5:7b")),
         llm_timeout_seconds=timeout,
-        asr_provider=os.getenv("ASR_PROVIDER", "stub").strip().lower() or "stub",
-        tts_provider=os.getenv("TTS_PROVIDER", "silence").strip().lower() or "silence",
     )

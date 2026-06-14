@@ -40,7 +40,7 @@ uv run uvicorn qdh_backend.main:app --host 127.0.0.1 --port 3000
 
 - 主页面：<http://127.0.0.1:3000/>
 - 健康检查：<http://127.0.0.1:3000/health>
-- 模型页：<http://127.0.0.1:3000/models.html>
+- 模型/能力页：<http://127.0.0.1:3000/models.html>（静态前端）或 Vue 开发环境的 <http://localhost:5173/models>
 
 ## 已兼容的 API
 
@@ -48,12 +48,12 @@ uv run uvicorn qdh_backend.main:app --host 127.0.0.1 --port 3000
 - `POST /api/tts`
 - `POST /api/pipeline`
 - `GET /api/ws/asr`
-- `GET /api/models/status`
-- `POST /api/models/download`
-- `POST /api/models/delete`
-- `POST /api/models/verify`
-- `POST /api/models/preload/asr`
-- `POST /api/models/preload/tts`
+- `GET /api/models/status`（展示 Ollama/OpenAI-compatible LLM 服务状态）
+- `POST /api/models/download`（兼容端点，返回“不再由后端管理模型”）
+- `POST /api/models/delete`（兼容端点，返回“不再由后端管理模型”）
+- `POST /api/models/verify`（兼容端点，返回“不再由后端管理模型”）
+- `POST /api/models/preload/asr`（兼容端点，ASR 由浏览器提供）
+- `POST /api/models/preload/tts`（兼容端点，TTS 由浏览器提供）
 - `POST /api/map/search`
 - `POST /api/context/retrieve`
 

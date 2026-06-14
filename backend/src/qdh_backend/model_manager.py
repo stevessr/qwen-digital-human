@@ -1,137 +1,108 @@
 from __future__ import annotations
 
-import hashlib
-from pathlib import Path
-
 import httpx
 
 from .schemas import ModelInfo
-
-MODEL_LIBRARY: tuple[dict[str, str], ...] = (
-    {
-        "name": "Qwen3.5-0.8B-Q4_K_M.gguf",
-        "description": "LLM (Unsloth): Qwen 3.5 0.8B GGUF 极致优化版",
-        "url": "https://www.modelscope.cn/models/unsloth/Qwen3.5-0.8B-GGUF/resolve/master/Qwen3.5-0.8B-Q4_K_M.gguf",
-        "size": "0.53 GB",
-        "expected_sha256": "bd258782e35f7f458f8aced1adc053e6e92e89bc735ba3be89d38a06121dc517",
-    },
-    {
-        "name": "Qwen3-ASR-0.6B-Q8_0.gguf",
-        "description": "ASR: Qwen3 0.6B 官方原生语音识别模型 (GGUF 8-bit)",
-        "url": "https://www.modelscope.cn/models/ggml-org/Qwen3-ASR-0.6B-GGUF/resolve/master/Qwen3-ASR-0.6B-Q8_0.gguf",
-        "size": "805 MB",
-        "expected_sha256": "",
-    },
-    {
-        "name": "qwen3-reranker-0.6b-q8_0.gguf",
-        "description": "Reranker: Qwen3 0.6B 官方重排序模型",
-        "url": "https://www.modelscope.cn/models/ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF/resolve/master/qwen3-reranker-0.6b-q8_0.gguf",
-        "size": "640 MB",
-        "expected_sha256": "",
-    },
-    {
-        "name": "Qwen3-Embedding-0.6B-Q8_0.gguf",
-        "description": "Embedding: Qwen3 0.6B 官方原生向量模型",
-        "url": "https://www.modelscope.cn/models/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/master/Qwen3-Embedding-0.6B-Q8_0.gguf",
-        "size": "620 MB",
-        "expected_sha256": "",
-    },
-    {
-        "name": "audio2verts.mnn",
-        "description": "A2BS: 语音转顶点姿态模型 (UniTalker-MNN)",
-        "url": "https://www.modelscope.cn/models/MNN/UniTalker-MNN/resolve/master/audio2verts.mnn",
-        "size": "45 MB",
-        "expected_sha256": "",
-    },
-    {
-        "name": "render_full.nnr",
-        "description": "NNR: 神经网络高清渲染模型 (TaoAvatar-NNR-MNN)",
-        "url": "https://www.modelscope.cn/models/MNN/TaoAvatar-NNR-MNN/resolve/master/render_full.nnr",
-        "size": "320 MB",
-        "expected_sha256": "",
-    },
-    {
-        "name": "chinese_bert.mnn",
-        "description": "TTS: Qwen 官方推荐 Sambert 语音合成模型 (bert-vits2-MNN)",
-        "url": "https://www.modelscope.cn/models/MNN/bert-vits2-MNN/resolve/master/common/mnn_models/chinese_bert.mnn",
-        "size": "95 MB",
-        "expected_sha256": "",
-    },
-)
+from .settings import Settings
 
 
 class ModelManager:
-    def __init__(self, base_dir: Path) -> None:
-        self.base_dir = base_dir
-        self.base_dir.mkdir(parents=True, exist_ok=True)
-        self._progress: dict[str, float] = {}
-
-    def _safe_path(self, name: str) -> Path:
-        if Path(name).name != name:
-            raise ValueError("模型名称不能包含路径")
-        return self.base_dir / name
+    def __init__(self, settings: Settings) -> None:
+        self.settings = settings
 
     async def get_model_library(self) -> list[ModelInfo]:
-        results: list[ModelInfo] = []
-        for item in MODEL_LIBRARY:
-            path = self._safe_path(item["name"])
-            results.append(
-                ModelInfo(
-                    name=item["name"],
-                    description=item["description"],
-                    url=item["url"],
-                    size=item["size"],
-                    installed=path.exists(),
-                    progress=self._progress.get(item["name"]),
-                    expected_sha256=item["expected_sha256"],
-                )
-            )
-        return results
+        if self.settings.llm_provider == "openai_compatible":
+            return [self._external_api_info()]
+        if self.settings.llm_provider == "stub":
+            return [self._stub_info()]
+        return [await self._ollama_info()]
+
+    async def _ollama_info(self) -> ModelInfo:
+        model_name = self.settings.ollama_model
+        service_available = False
+        model_available = False
+        status_note = "Ollama 服务未连接，或尚未拉取指定模型。"
+
+        try:
+            async with httpx.AsyncClient(timeout=1.5) as client:
+                response = await client.get(f"{self.settings.ollama_base_url}/api/tags")
+            response.raise_for_status()
+            service_available = True
+            data = response.json()
+            names = {
+                str(item.get("name") or item.get("model") or "")
+                for item in data.get("models", [])
+            }
+            model_available = model_name in names
+            if model_available:
+                status_note = "Ollama 服务已连接，指定模型可用。"
+            else:
+                status_note = f"Ollama 服务已连接，但未发现模型 {model_name}。请运行 ollama pull {model_name}。"
+        except Exception:  # noqa: BLE001 - status endpoint must not fail the page
+            pass
+
+        return ModelInfo(
+            name=model_name,
+            description=(
+                "LLM 推理由本地 Ollama 服务提供；后端只调用 Ollama HTTP API，"
+                f"不加载 GGUF/MNN 推理模型。{status_note}"
+            ),
+            url=self.settings.ollama_base_url,
+            size="由 Ollama 管理",
+            installed=service_available and model_available,
+            progress=None,
+            expected_sha256="",
+            provider="Ollama",
+            capability="LLM 推理",
+            managed_by="ollama",
+            downloadable=False,
+            verifiable=False,
+            deletable=False,
+        )
+
+    def _external_api_info(self) -> ModelInfo:
+        configured = bool(self.settings.llm_base_url and self.settings.llm_model)
+        return ModelInfo(
+            name=self.settings.llm_model or "OpenAI-compatible model",
+            description="LLM 推理由 OpenAI-compatible 外部服务提供；后端不加载本地推理模型。",
+            url=self.settings.llm_base_url,
+            size="由外部服务管理",
+            installed=configured,
+            progress=None,
+            expected_sha256="",
+            provider="OpenAI-compatible",
+            capability="LLM 推理",
+            managed_by="external",
+            downloadable=False,
+            verifiable=False,
+            deletable=False,
+        )
+
+    def _stub_info(self) -> ModelInfo:
+        return ModelInfo(
+            name="stub-llm-provider",
+            description="测试用 LLM provider；用于本地测试，不代表真实后端模型推理能力。",
+            url="",
+            size="无需模型文件",
+            installed=True,
+            progress=None,
+            expected_sha256="",
+            provider="Stub",
+            capability="LLM 测试回复",
+            managed_by="external",
+            downloadable=False,
+            verifiable=False,
+            deletable=False,
+        )
 
     async def download_model(self, name: str, url: str) -> None:
-        dest = self._safe_path(name)
-        if dest.exists():
-            return
-        temp = dest.with_suffix(dest.suffix + ".part")
-        self._progress[name] = 0.01
-        try:
-            async with (
-                httpx.AsyncClient(
-                    timeout=None,
-                    headers={
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                    },
-                ) as client,
-                client.stream("GET", url) as response,
-            ):
-                response.raise_for_status()
-                total = int(response.headers.get("content-length") or 0)
-                downloaded = 0
-                with temp.open("wb") as file:
-                    async for chunk in response.aiter_bytes():
-                        if not chunk:
-                            continue
-                        file.write(chunk)
-                        downloaded += len(chunk)
-                        if total > 0:
-                            self._progress[name] = min(99.9, downloaded / total * 100)
-            temp.replace(dest)
-        finally:
-            temp.unlink(missing_ok=True)
-            self._progress.pop(name, None)
+        del name, url
+        raise RuntimeError("后端不再管理本地模型文件；请使用 Ollama 管理 LLM 模型，例如 ollama pull <model>。")
 
     async def delete_model(self, name: str) -> None:
-        self._safe_path(name).unlink(missing_ok=True)
-        self._progress.pop(name, None)
+        del name
+        raise RuntimeError("后端不再删除本地模型文件；请使用 Ollama CLI 管理模型。")
 
     async def verify_model(self, name: str, expected_sha256: str) -> bool:
-        if not expected_sha256:
-            return True
-        path = self._safe_path(name)
-        if not path.exists():
-            return False
-        hasher = hashlib.sha256()
-        with path.open("rb") as file:
-            for chunk in iter(lambda: file.read(1024 * 1024), b""):
-                hasher.update(chunk)
-        return hasher.hexdigest() == expected_sha256.lower()
+        del name, expected_sha256
+        return False
