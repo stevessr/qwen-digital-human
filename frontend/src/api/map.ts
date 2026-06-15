@@ -20,7 +20,7 @@ export async function searchMapPlaces(query: string, limit = 5): Promise<MapSear
   return data
 }
 
-export async function nearbyMapPlaces(lat: number, lon: number, limit = 6): Promise<MapSearchResponse> {
+export async function nearbyMapPlaces(lat: number, lon: number, limit = 10): Promise<MapSearchResponse> {
   const response = await fetch('/api/map/nearby', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

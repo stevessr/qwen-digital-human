@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import asyncio
 from difflib import SequenceMatcher
+from math import asin, cos, radians, sin, sqrt
 
 import httpx
 
 from .schemas import MapBounds, MapPlace, MapSearchResponse
+
+NEARBY_RADIUS_METERS = 1000
+MAX_NEARBY_RESULTS = 10
+OVERPASS_ENDPOINT = "https://overpass-api.de/api/interpreter"
 
 LOCAL_PLACES: tuple[dict[str, object], ...] = (
     {
@@ -94,8 +99,11 @@ def _build_summary(
     category: str | None,
     kind: str | None,
     importance: float | None,
+    distance_m: float | None = None,
 ) -> str:
     lines = [display_name, f"坐标：{lat:.6f}, {lon:.6f}"]
+    if distance_m is not None:
+        lines.append(f"距离：{distance_m:.0f} 米")
     if category:
         lines.append(f"分类：{category}")
     if kind:
@@ -148,38 +156,6 @@ def _local_results(query: str, limit: int) -> list[MapPlace]:
     return [_to_place(_local_raw_place(item)) for item in matches]
 
 
-def _fallback_nearby_results(lat: float, lon: float, limit: int) -> list[MapPlace]:
-    offsets = (
-        ("手动标点", 0.0, 0.0),
-        ("北侧候选", 0.0020, 0.0),
-        ("东侧候选", 0.0, 0.0024),
-        ("南侧候选", -0.0020, 0.0),
-        ("西侧候选", 0.0, -0.0024),
-        ("东北候选", 0.0015, 0.0018),
-        ("西南候选", -0.0015, -0.0018),
-    )
-    places: list[MapPlace] = []
-    for label, d_lat, d_lon in offsets[: max(1, limit)]:
-        place_lat = lat + d_lat
-        place_lon = lon + d_lon
-        raw = {
-            "display_name": f"{label}（{place_lat:.6f}, {place_lon:.6f}）",
-            "lat": str(place_lat),
-            "lon": str(place_lon),
-            "boundingbox": [
-                str(place_lat - 0.004),
-                str(place_lat + 0.004),
-                str(place_lon - 0.005),
-                str(place_lon + 0.005),
-            ],
-            "category": "manual",
-            "type": "nearby-candidate" if label != "手动标点" else "manual-pin",
-            "importance": 1.0 if label == "手动标点" else 0.65,
-        }
-        places.append(_to_place(raw))
-    return places
-
-
 def _nearby_probe_points(lat: float, lon: float, limit: int) -> list[tuple[float, float]]:
     offsets = (
         (0.0, 0.0),
@@ -195,14 +171,160 @@ def _nearby_probe_points(lat: float, lon: float, limit: int) -> list[tuple[float
     return [(lat + d_lat, lon + d_lon) for d_lat, d_lon in offsets[: max(1, limit + 2)]]
 
 
+def _is_useful_place_name(name: str) -> bool:
+    stripped = name.strip()
+    return bool(stripped) and any(char.isalpha() for char in stripped)
+
+
 def _place_key(place: MapPlace) -> str:
-    return f"{place.display_name.casefold()}:{place.lat:.5f}:{place.lon:.5f}"
+    return place.display_name.casefold().strip()
+
+
+def _distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    earth_radius_m = 6_371_000
+    d_lat = radians(lat2 - lat1)
+    d_lon = radians(lon2 - lon1)
+    r_lat1 = radians(lat1)
+    r_lat2 = radians(lat2)
+    hav = sin(d_lat / 2) ** 2 + cos(r_lat1) * cos(r_lat2) * sin(d_lon / 2) ** 2
+    return 2 * earth_radius_m * asin(sqrt(hav))
+
+
+def _normalise_nearby_results(
+    places: list[MapPlace],
+    origin_lat: float,
+    origin_lon: float,
+    limit: int,
+) -> list[MapPlace]:
+    seen: set[str] = set()
+    unique: list[MapPlace] = []
+    for place in places:
+        if not _is_useful_place_name(place.display_name):
+            continue
+        distance = place.distance_m
+        if distance is None:
+            distance = _distance_m(origin_lat, origin_lon, place.lat, place.lon)
+            place.distance_m = distance
+        if distance > NEARBY_RADIUS_METERS:
+            continue
+        key = _place_key(place)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(place)
+
+    unique.sort(key=lambda item: (item.distance_m if item.distance_m is not None else 10**9))
+    return unique[:limit]
+
+
+def _overpass_query(lat: float, lon: float) -> str:
+    return f"""
+[out:json][timeout:8];
+(
+  node(around:{NEARBY_RADIUS_METERS},{lat:.7f},{lon:.7f})["name"];
+  way(around:{NEARBY_RADIUS_METERS},{lat:.7f},{lon:.7f})["name"];
+  relation(around:{NEARBY_RADIUS_METERS},{lat:.7f},{lon:.7f})["name"];
+);
+out center 80;
+"""
+
+
+def _tag_category(tags: dict[str, object]) -> tuple[str | None, str | None]:
+    for key in (
+        "tourism",
+        "historic",
+        "amenity",
+        "leisure",
+        "shop",
+        "public_transport",
+        "railway",
+        "highway",
+        "office",
+        "building",
+        "natural",
+    ):
+        value = tags.get(key)
+        if isinstance(value, str) and value.strip():
+            return key, value
+    return None, None
+
+
+def _overpass_to_place(raw: dict, origin_lat: float, origin_lon: float) -> MapPlace | None:
+    tags = raw.get("tags") if isinstance(raw.get("tags"), dict) else {}
+    name = (
+        str(tags.get("name:zh") or tags.get("name:en") or tags.get("name") or "").strip()
+        if isinstance(tags, dict)
+        else ""
+    )
+    if not name:
+        return None
+
+    raw_lat = raw.get("lat")
+    raw_lon = raw.get("lon")
+    center = raw.get("center") if isinstance(raw.get("center"), dict) else {}
+    lat = raw_lat if raw_lat is not None else center.get("lat")
+    lon = raw_lon if raw_lon is not None else center.get("lon")
+    try:
+        place_lat = float(lat)
+        place_lon = float(lon)
+    except (TypeError, ValueError):
+        return None
+
+    distance_m = _distance_m(origin_lat, origin_lon, place_lat, place_lon)
+    if distance_m > NEARBY_RADIUS_METERS:
+        return None
+
+    category, kind = _tag_category(tags if isinstance(tags, dict) else {})
+    bounds = MapBounds(
+        south=place_lat - 0.003,
+        north=place_lat + 0.003,
+        west=place_lon - 0.004,
+        east=place_lon + 0.004,
+    )
+    return MapPlace(
+        place_id=None,
+        osm_type=str(raw.get("type") or ""),
+        osm_id=raw.get("id"),
+        display_name=name,
+        lat=place_lat,
+        lon=place_lon,
+        bounds=bounds,
+        category=category,
+        kind=kind,
+        importance=None,
+        distance_m=distance_m,
+        map_url=_build_embed_url(place_lat, place_lon, bounds),
+        summary=_build_summary(name, place_lat, place_lon, category, kind, None, distance_m),
+    )
+
+
+async def _overpass_nearby_places(
+    client: httpx.AsyncClient,
+    lat: float,
+    lon: float,
+) -> list[MapPlace]:
+    response = await client.post(OVERPASS_ENDPOINT, data={"data": _overpass_query(lat, lon)})
+    response.raise_for_status()
+    data = response.json()
+    elements = data.get("elements") if isinstance(data, dict) else []
+    if not isinstance(elements, list):
+        return []
+    places: list[MapPlace] = []
+    for raw in elements:
+        if not isinstance(raw, dict):
+            continue
+        place = _overpass_to_place(raw, lat, lon)
+        if place is not None:
+            places.append(place)
+    return places
 
 
 async def _reverse_place(
     client: httpx.AsyncClient,
     lat: float,
     lon: float,
+    origin_lat: float,
+    origin_lon: float,
 ) -> MapPlace | None:
     response = await client.get(
         "https://nominatim.openstreetmap.org/reverse",
@@ -221,10 +343,10 @@ async def _reverse_place(
     raw = response.json()
     if raw.get("error"):
         return None
-    return _to_place(raw)
+    return _to_place(raw, origin=(origin_lat, origin_lon))
 
 
-def _to_place(raw: dict) -> MapPlace:
+def _to_place(raw: dict, origin: tuple[float, float] | None = None) -> MapPlace:
     try:
         lat = float(raw.get("lat") or 0.0)
         lon = float(raw.get("lon") or 0.0)
@@ -241,6 +363,9 @@ def _to_place(raw: dict) -> MapPlace:
         except (TypeError, ValueError):
             importance = None
     display_name = str(raw.get("display_name") or "")
+    distance_m = None
+    if origin is not None:
+        distance_m = _distance_m(origin[0], origin[1], lat, lon)
     return MapPlace(
         place_id=raw.get("place_id"),
         osm_type=raw.get("osm_type"),
@@ -252,8 +377,9 @@ def _to_place(raw: dict) -> MapPlace:
         category=category,
         kind=kind,
         importance=importance,
+        distance_m=distance_m,
         map_url=_build_embed_url(lat, lon, bounds),
-        summary=_build_summary(display_name, lat, lon, category, kind, importance),
+        summary=_build_summary(display_name, lat, lon, category, kind, importance, distance_m),
     )
 
 
@@ -292,40 +418,44 @@ async def search_places(query: str, limit: int = 5) -> MapSearchResponse:
     return MapSearchResponse(query=trimmed, results=_local_results(trimmed, limit))
 
 
-async def nearby_places(lat: float, lon: float, limit: int = 6) -> MapSearchResponse:
+async def nearby_places(lat: float, lon: float, limit: int = MAX_NEARBY_RESULTS) -> MapSearchResponse:
     if not (-90 <= lat <= 90 and -180 <= lon <= 180):
         raise ValueError("手动标点坐标超出地图范围")
 
-    limit = max(1, min(8, int(limit or 6)))
+    limit = max(1, min(MAX_NEARBY_RESULTS, int(limit or MAX_NEARBY_RESULTS)))
     query = f"{lat:.6f},{lon:.6f}"
-    places: list[MapPlace] = []
-    seen: set[str] = set()
 
+    overpass_places: list[MapPlace] = []
+    try:
+        async with httpx.AsyncClient(
+            timeout=10,
+            headers={"User-Agent": "qwen-digital-human/1.0 (map-nearby)"},
+        ) as client:
+            overpass_places = await _overpass_nearby_places(client, lat, lon)
+    except Exception:
+        overpass_places = []
+
+    places = _normalise_nearby_results(overpass_places, lat, lon, limit)
+    if places:
+        return MapSearchResponse(query=query, results=places)
+
+    reverse_places: list[MapPlace] = []
     try:
         async with httpx.AsyncClient(
             timeout=4,
-            headers={"User-Agent": "qwen-digital-human/1.0 (map-nearby)"},
+            headers={"User-Agent": "qwen-digital-human/1.0 (map-nearby-fallback)"},
         ) as client:
             responses = await asyncio.gather(
                 *(
-                    _reverse_place(client, probe_lat, probe_lon)
+                    _reverse_place(client, probe_lat, probe_lon, lat, lon)
                     for probe_lat, probe_lon in _nearby_probe_points(lat, lon, limit)
                 )
             )
-            for place in responses:
-                if place is None:
-                    continue
-                key = _place_key(place)
-                if key in seen:
-                    continue
-                seen.add(key)
-                places.append(place)
-                if len(places) >= limit:
-                    break
+            reverse_places = [place for place in responses if place is not None]
     except Exception:
-        places = []
+        reverse_places = []
 
-    if not places:
-        places = _fallback_nearby_results(lat, lon, limit)
-
-    return MapSearchResponse(query=query, results=places[:limit])
+    return MapSearchResponse(
+        query=query,
+        results=_normalise_nearby_results(reverse_places, lat, lon, limit),
+    )

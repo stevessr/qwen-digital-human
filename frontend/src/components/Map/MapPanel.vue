@@ -32,6 +32,11 @@ const selectedPlace = computed(() => mapStore.currentLocation)
 const coordinateText = computed(() => (
   `${Number(selectedPlace.value.lat).toFixed(6)}, ${Number(selectedPlace.value.lon).toFixed(6)}`
 ))
+const showNoNearbyCandidates = computed(() => (
+  !mapStore.isLoadingNearby
+  && selectedPlace.value.kind === 'manual-pin'
+  && mapStore.searchResults.length === 0
+))
 
 const writeMapContext = () => {
   const cleaned = stripMapContext(chatStore.settings.context)
@@ -177,7 +182,10 @@ watch(selectedPlace, updateMapView)
 
     <div class="map-results">
       <div v-if="mapStore.isLoadingNearby" class="map-nearby-loading">
-        正在加载附近候选...
+        正在加载 1KM 内地点候选...
+      </div>
+      <div v-else-if="showNoNearbyCandidates" class="map-nearby-empty">
+        1KM 内暂无可识别地点候选
       </div>
       <button
         v-for="(place, index) in mapStore.searchResults"
@@ -187,7 +195,12 @@ watch(selectedPlace, updateMapView)
         :class="{ selected: mapStore.isSelectedMapPlace(place) }"
         @click="mapStore.setCurrentLocation(place)"
       >
-        <strong>{{ place.display_name }}</strong>
+        <strong>
+          {{ place.display_name }}
+          <span v-if="mapStore.formatDistance(place.distance_m)" class="distance-badge">
+            {{ mapStore.formatDistance(place.distance_m) }}
+          </span>
+        </strong>
         <small>{{ place.summary || `坐标：${Number(place.lat).toFixed(4)}, ${Number(place.lon).toFixed(4)}` }}</small>
       </button>
     </div>
@@ -267,7 +280,8 @@ watch(selectedPlace, updateMapView)
   min-height: 72px;
 }
 
-.map-nearby-loading {
+.map-nearby-loading,
+.map-nearby-empty {
   flex: 0 0 180px;
   display: grid;
   place-items: center;
@@ -277,6 +291,13 @@ watch(selectedPlace, updateMapView)
   background: rgba(24, 42, 60, 0.72);
   color: #9dc9f5;
   font-size: 0.82rem;
+}
+
+.map-nearby-empty {
+  flex-basis: 240px;
+  border-color: #4a3a22;
+  background: rgba(60, 42, 20, 0.58);
+  color: #f0c787;
 }
 
 .map-result {
@@ -304,6 +325,18 @@ watch(selectedPlace, updateMapView)
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.distance-badge {
+  display: inline-flex;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(45, 140, 255, 0.18);
+  color: #96ceff;
+  font-size: 0.72rem;
+  font-weight: 500;
+  vertical-align: 1px;
 }
 
 .map-result small {

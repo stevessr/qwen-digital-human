@@ -92,7 +92,7 @@ class MapSearchRequest(CompatModel):
 class MapNearbyRequest(CompatModel):
     lat: float
     lon: float
-    limit: int = 6
+    limit: int = 10
 
 
 class MapBounds(CompatModel):
@@ -113,6 +113,7 @@ class MapPlace(CompatModel):
     category: str | None = None
     kind: str | None = None
     importance: float | None = None
+    distance_m: float | None = None
     map_url: str
     summary: str
 

@@ -9,8 +9,11 @@ import {
 } from '@/constants/config'
 
 const DEFAULT_MAP_STATUS = '默认定位：北京天安门广场。可搜索地点并写入上下文。'
+const NEARBY_RADIUS_METERS = 1000
+const MAX_NEARBY_CANDIDATES = 10
 
 const mapContextPattern = /(?:^|\n\n)【地图讲解上下文】[\s\S]*?(?=\n\n|$)/g
+const usefulPlaceNamePattern = /\p{L}/u
 
 const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value))
 
@@ -62,6 +65,7 @@ const buildManualPlace = (
     category: 'manual',
     kind,
     importance: kind === 'manual-pin' ? 1 : 0.65,
+    distance_m: kind === 'manual-pin' ? 0 : null,
     summary: [
       `${label}（${formattedLat}, ${formattedLon}）`,
       `坐标：${formattedLat}, ${formattedLon}`,
@@ -139,25 +143,32 @@ export const useMapStore = defineStore('map', () => {
     && currentLocation.value.lon === place.lon
   )
 
-  const mergeNearbyResults = (manualPlace: MapPlace, candidates: MapPlace[]): MapPlace[] => {
+  const normaliseNearbyCandidates = (candidates: MapPlace[]): MapPlace[] => {
     const seen = new Set<string>()
-    return [manualPlace, ...candidates]
+    return candidates
       .filter((place) => {
-        const key = `${place.display_name}:${Number(place.lat).toFixed(5)}:${Number(place.lon).toFixed(5)}`
+        const displayName = place.display_name.trim()
+        const distance = Number(place.distance_m)
+        if (!displayName || !usefulPlaceNamePattern.test(displayName)) return false
+        if (!Number.isFinite(distance) || distance > NEARBY_RADIUS_METERS) return false
+        const key = displayName.toLocaleLowerCase()
         if (seen.has(key)) return false
         seen.add(key)
         return true
       })
-      .slice(0, 8)
+      .sort((a, b) => (
+        (a.distance_m ?? Number.POSITIVE_INFINITY)
+        - (b.distance_m ?? Number.POSITIVE_INFINITY)
+      ))
+      .slice(0, MAX_NEARBY_CANDIDATES)
   }
 
-  const localNearbyCandidates = (lat: number, lon: number): MapPlace[] => [
-    buildManualPlace(lat + 0.0020, lon, '北侧候选', 'nearby-candidate'),
-    buildManualPlace(lat, lon + 0.0024, '东侧候选', 'nearby-candidate'),
-    buildManualPlace(lat - 0.0020, lon, '南侧候选', 'nearby-candidate'),
-    buildManualPlace(lat, lon - 0.0024, '西侧候选', 'nearby-candidate'),
-    buildManualPlace(lat + 0.0015, lon + 0.0018, '东北候选', 'nearby-candidate'),
-  ]
+  const formatDistance = (value?: number | null): string => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return ''
+    return value <= NEARBY_RADIUS_METERS
+      ? `距标点 ${Math.round(value)} m`
+      : `距标点 ${(value / 1000).toFixed(1)} km`
+  }
 
   const searchPlaces = async () => {
     const query = searchQuery.value.trim()
@@ -203,19 +214,21 @@ export const useMapStore = defineStore('map', () => {
     const manualPlace = buildManualPlace(safeLat, safeLon)
 
     currentLocation.value = manualPlace
-    searchResults.value = mergeNearbyResults(manualPlace, localNearbyCandidates(safeLat, safeLon))
-    status.value = '已手动标点，顶部已显示附近候选，正在补充真实地物候选...'
+    searchResults.value = []
+    status.value = '已手动标点，正在加载 1KM 内附近地点候选...'
     isLoadingNearby.value = true
 
     try {
-      const data = await nearbyMapPlaces(safeLat, safeLon, 7)
-      searchResults.value = mergeNearbyResults(manualPlace, data.results)
-      status.value = `已手动标点，并显示 ${searchResults.value.length} 个附近候选。请选择候选或直接写入上下文。`
+      const data = await nearbyMapPlaces(safeLat, safeLon, 10)
+      searchResults.value = normaliseNearbyCandidates(data.results)
+      status.value = searchResults.value.length
+        ? `已按距离显示 1KM 内 ${searchResults.value.length} 个地点候选。请选择候选或直接写入上下文。`
+        : '1KM 内暂未找到可识别地点候选，可直接写入当前手动标点。'
     } catch (error) {
-      searchResults.value = mergeNearbyResults(manualPlace, localNearbyCandidates(safeLat, safeLon))
+      searchResults.value = []
       status.value = error instanceof Error
-        ? `附近候选获取失败，已显示本地候选：${error.message}`
-        : '附近候选获取失败，已显示本地候选。'
+        ? `1KM 内地点候选获取失败：${error.message}`
+        : '1KM 内地点候选获取失败。'
     } finally {
       isLoadingNearby.value = false
     }
@@ -236,6 +249,7 @@ export const useMapStore = defineStore('map', () => {
     setSearchResults,
     mapPlaceKey,
     isSelectedMapPlace,
+    formatDistance,
     searchPlaces,
     clearResults,
     clearMap,

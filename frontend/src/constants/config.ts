@@ -91,6 +91,7 @@ export interface MapPlace {
   category?: string | null
   kind?: string | null
   importance?: number | null
+  distance_m?: number | null
   map_url?: string
   summary?: string
 }
