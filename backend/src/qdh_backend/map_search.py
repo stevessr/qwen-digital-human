@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from difflib import SequenceMatcher
 
 import httpx
@@ -147,6 +148,82 @@ def _local_results(query: str, limit: int) -> list[MapPlace]:
     return [_to_place(_local_raw_place(item)) for item in matches]
 
 
+def _fallback_nearby_results(lat: float, lon: float, limit: int) -> list[MapPlace]:
+    offsets = (
+        ("手动标点", 0.0, 0.0),
+        ("北侧候选", 0.0020, 0.0),
+        ("东侧候选", 0.0, 0.0024),
+        ("南侧候选", -0.0020, 0.0),
+        ("西侧候选", 0.0, -0.0024),
+        ("东北候选", 0.0015, 0.0018),
+        ("西南候选", -0.0015, -0.0018),
+    )
+    places: list[MapPlace] = []
+    for label, d_lat, d_lon in offsets[: max(1, limit)]:
+        place_lat = lat + d_lat
+        place_lon = lon + d_lon
+        raw = {
+            "display_name": f"{label}（{place_lat:.6f}, {place_lon:.6f}）",
+            "lat": str(place_lat),
+            "lon": str(place_lon),
+            "boundingbox": [
+                str(place_lat - 0.004),
+                str(place_lat + 0.004),
+                str(place_lon - 0.005),
+                str(place_lon + 0.005),
+            ],
+            "category": "manual",
+            "type": "nearby-candidate" if label != "手动标点" else "manual-pin",
+            "importance": 1.0 if label == "手动标点" else 0.65,
+        }
+        places.append(_to_place(raw))
+    return places
+
+
+def _nearby_probe_points(lat: float, lon: float, limit: int) -> list[tuple[float, float]]:
+    offsets = (
+        (0.0, 0.0),
+        (0.0018, 0.0),
+        (0.0, 0.0022),
+        (-0.0018, 0.0),
+        (0.0, -0.0022),
+        (0.0013, 0.0016),
+        (0.0013, -0.0016),
+        (-0.0013, 0.0016),
+        (-0.0013, -0.0016),
+    )
+    return [(lat + d_lat, lon + d_lon) for d_lat, d_lon in offsets[: max(1, limit + 2)]]
+
+
+def _place_key(place: MapPlace) -> str:
+    return f"{place.display_name.casefold()}:{place.lat:.5f}:{place.lon:.5f}"
+
+
+async def _reverse_place(
+    client: httpx.AsyncClient,
+    lat: float,
+    lon: float,
+) -> MapPlace | None:
+    response = await client.get(
+        "https://nominatim.openstreetmap.org/reverse",
+        params={
+            "format": "jsonv2",
+            "addressdetails": "1",
+            "extratags": "1",
+            "namedetails": "1",
+            "zoom": "18",
+            "lat": f"{lat:.7f}",
+            "lon": f"{lon:.7f}",
+        },
+    )
+    if not response.is_success:
+        return None
+    raw = response.json()
+    if raw.get("error"):
+        return None
+    return _to_place(raw)
+
+
 def _to_place(raw: dict) -> MapPlace:
     try:
         lat = float(raw.get("lat") or 0.0)
@@ -213,3 +290,42 @@ async def search_places(query: str, limit: int = 5) -> MapSearchResponse:
         pass
 
     return MapSearchResponse(query=trimmed, results=_local_results(trimmed, limit))
+
+
+async def nearby_places(lat: float, lon: float, limit: int = 6) -> MapSearchResponse:
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        raise ValueError("手动标点坐标超出地图范围")
+
+    limit = max(1, min(8, int(limit or 6)))
+    query = f"{lat:.6f},{lon:.6f}"
+    places: list[MapPlace] = []
+    seen: set[str] = set()
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=4,
+            headers={"User-Agent": "qwen-digital-human/1.0 (map-nearby)"},
+        ) as client:
+            responses = await asyncio.gather(
+                *(
+                    _reverse_place(client, probe_lat, probe_lon)
+                    for probe_lat, probe_lon in _nearby_probe_points(lat, lon, limit)
+                )
+            )
+            for place in responses:
+                if place is None:
+                    continue
+                key = _place_key(place)
+                if key in seen:
+                    continue
+                seen.add(key)
+                places.append(place)
+                if len(places) >= limit:
+                    break
+    except Exception:
+        places = []
+
+    if not places:
+        places = _fallback_nearby_results(lat, lon, limit)
+
+    return MapSearchResponse(query=query, results=places[:limit])

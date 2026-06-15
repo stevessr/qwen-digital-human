@@ -78,7 +78,7 @@ const ensureMap = () => {
   map.on('click', (event: LeafletMouseEvent) => {
     if (!isManualPinMode.value) return
 
-    mapStore.setManualLocation(event.latlng.lat, event.latlng.lng)
+    void mapStore.setManualLocation(event.latlng.lat, event.latlng.lng)
     isManualPinMode.value = false
   })
 }
@@ -176,6 +176,9 @@ watch(selectedPlace, updateMapView)
     </div>
 
     <div class="map-results">
+      <div v-if="mapStore.isLoadingNearby" class="map-nearby-loading">
+        正在加载附近候选...
+      </div>
       <button
         v-for="(place, index) in mapStore.searchResults"
         :key="mapStore.mapPlaceKey(place, index)"
@@ -256,11 +259,24 @@ watch(selectedPlace, updateMapView)
 .map-results {
   display: flex;
   gap: 8px;
+  align-items: stretch;
   overflow-x: auto;
   padding: 10px 14px;
   border-bottom: 1px solid #262626;
   background: #101419;
   min-height: 72px;
+}
+
+.map-nearby-loading {
+  flex: 0 0 180px;
+  display: grid;
+  place-items: center;
+  padding: 9px 10px;
+  border: 1px dashed #31516f;
+  border-radius: 10px;
+  background: rgba(24, 42, 60, 0.72);
+  color: #9dc9f5;
+  font-size: 0.82rem;
 }
 
 .map-result {

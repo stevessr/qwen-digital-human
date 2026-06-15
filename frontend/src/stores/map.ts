@@ -1,6 +1,6 @@
 import { computed, ref, shallowRef } from 'vue'
 import { defineStore } from 'pinia'
-import { searchMapPlaces } from '@/api/map'
+import { nearbyMapPlaces, searchMapPlaces } from '@/api/map'
 import {
   DEFAULT_MAP_PLACE,
   MAP_CONTEXT_MARKER,
@@ -45,23 +45,28 @@ const buildManualBounds = (lat: number, lon: number): MapBounds => ({
   east: lon + 0.008,
 })
 
-const buildManualPlace = (lat: number, lon: number): MapPlace => {
+const buildManualPlace = (
+  lat: number,
+  lon: number,
+  label = '手动标点',
+  kind = 'manual-pin',
+): MapPlace => {
   const formattedLat = formatCoordinate(lat)
   const formattedLon = formatCoordinate(lon)
 
   return {
-    display_name: `手动标点（${formattedLat}, ${formattedLon}）`,
+    display_name: `${label}（${formattedLat}, ${formattedLon}）`,
     lat,
     lon,
     bounds: buildManualBounds(lat, lon),
     category: 'manual',
-    kind: 'manual-pin',
-    importance: 1,
+    kind,
+    importance: kind === 'manual-pin' ? 1 : 0.65,
     summary: [
-      `手动标点（${formattedLat}, ${formattedLon}）`,
+      `${label}（${formattedLat}, ${formattedLon}）`,
       `坐标：${formattedLat}, ${formattedLon}`,
       '分类：manual',
-      '类型：manual-pin',
+      `类型：${kind}`,
     ].join('\n'),
   }
 }
@@ -94,6 +99,7 @@ export const useMapStore = defineStore('map', () => {
   const searchQuery = ref('')
   const status = ref(DEFAULT_MAP_STATUS)
   const isSearching = ref(false)
+  const isLoadingNearby = ref(false)
 
   const mapContext = computed(() => buildMapContext(currentLocation.value))
   const mapFrameUrl = computed(() => buildMapFrameUrl(currentLocation.value))
@@ -133,6 +139,26 @@ export const useMapStore = defineStore('map', () => {
     && currentLocation.value.lon === place.lon
   )
 
+  const mergeNearbyResults = (manualPlace: MapPlace, candidates: MapPlace[]): MapPlace[] => {
+    const seen = new Set<string>()
+    return [manualPlace, ...candidates]
+      .filter((place) => {
+        const key = `${place.display_name}:${Number(place.lat).toFixed(5)}:${Number(place.lon).toFixed(5)}`
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+      .slice(0, 8)
+  }
+
+  const localNearbyCandidates = (lat: number, lon: number): MapPlace[] => [
+    buildManualPlace(lat + 0.0020, lon, '北侧候选', 'nearby-candidate'),
+    buildManualPlace(lat, lon + 0.0024, '东侧候选', 'nearby-candidate'),
+    buildManualPlace(lat - 0.0020, lon, '南侧候选', 'nearby-candidate'),
+    buildManualPlace(lat, lon - 0.0024, '西侧候选', 'nearby-candidate'),
+    buildManualPlace(lat + 0.0015, lon + 0.0018, '东北候选', 'nearby-candidate'),
+  ]
+
   const searchPlaces = async () => {
     const query = searchQuery.value.trim()
     if (!query) {
@@ -171,17 +197,28 @@ export const useMapStore = defineStore('map', () => {
     status.value = '地图已清空，恢复默认定位。'
   }
 
-  const setManualLocation = (lat: number, lon: number) => {
+  const setManualLocation = async (lat: number, lon: number) => {
     const safeLat = toFiniteNumber(lat, DEFAULT_MAP_PLACE.lat)
     const safeLon = toFiniteNumber(lon, DEFAULT_MAP_PLACE.lon)
     const manualPlace = buildManualPlace(safeLat, safeLon)
 
     currentLocation.value = manualPlace
-    searchResults.value = [
-      manualPlace,
-      ...searchResults.value.filter(place => !isSelectedMapPlace(place)),
-    ].slice(0, 8)
-    status.value = '已手动标点。点击“写入上下文”后，后端回复会围绕该坐标。'
+    searchResults.value = mergeNearbyResults(manualPlace, localNearbyCandidates(safeLat, safeLon))
+    status.value = '已手动标点，顶部已显示附近候选，正在补充真实地物候选...'
+    isLoadingNearby.value = true
+
+    try {
+      const data = await nearbyMapPlaces(safeLat, safeLon, 7)
+      searchResults.value = mergeNearbyResults(manualPlace, data.results)
+      status.value = `已手动标点，并显示 ${searchResults.value.length} 个附近候选。请选择候选或直接写入上下文。`
+    } catch (error) {
+      searchResults.value = mergeNearbyResults(manualPlace, localNearbyCandidates(safeLat, safeLon))
+      status.value = error instanceof Error
+        ? `附近候选获取失败，已显示本地候选：${error.message}`
+        : '附近候选获取失败，已显示本地候选。'
+    } finally {
+      isLoadingNearby.value = false
+    }
   }
 
   return {
@@ -194,6 +231,7 @@ export const useMapStore = defineStore('map', () => {
     searchQuery,
     status,
     isSearching,
+    isLoadingNearby,
     setCurrentLocation,
     setSearchResults,
     mapPlaceKey,

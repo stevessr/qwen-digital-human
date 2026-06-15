@@ -89,6 +89,12 @@ class MapSearchRequest(CompatModel):
     limit: int = 5
 
 
+class MapNearbyRequest(CompatModel):
+    lat: float
+    lon: float
+    limit: int = 6
+
+
 class MapBounds(CompatModel):
     south: float
     north: float
