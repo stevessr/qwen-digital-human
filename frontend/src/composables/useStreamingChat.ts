@@ -89,8 +89,9 @@ export function useStreamingChat() {
       callbacks?.onComplete?.(finalText)
     } catch (error) {
       console.error('Chat error:', error)
-      chatStore.updateLastMessage('Error: Failed to communicate with server.')
-      callbacks?.onError?.(error as Error)
+      const message = error instanceof Error ? error.message : 'Failed to communicate with server.'
+      chatStore.updateLastMessage(`后端回复失败：${message}`)
+      callbacks?.onError?.(error instanceof Error ? error : new Error(message))
     } finally {
       isStreaming.value = false
       chatStore.setStreaming(false)

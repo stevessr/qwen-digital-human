@@ -248,6 +248,34 @@ def _filter_full_text(text: str) -> str:
     return think_filter.push(text) + think_filter.finish()
 
 
+def build_fallback_reply(message: str, context: str = "", exc: Exception | None = None) -> str:
+    """Return a deterministic map-guide reply when the configured LLM is unavailable."""
+
+    subject = _extract_context_field(context, "地点") or message.strip() or "当前地点"
+    coordinate = _extract_context_field(context, "坐标")
+    parts = [
+        f"我先用本地讲解模式为你介绍：{subject}。",
+    ]
+    if coordinate:
+        parts.append(f"它的地图坐标约为 {coordinate}。")
+    parts.append(
+        "你可以围绕位置、周边地标、交通到达方式、适合人群和游览建议继续追问；"
+        "如果需要更完整的生成式回答，请确认后端 LLM 服务已经启动。"
+    )
+    if exc is not None:
+        parts.append(f"当前 LLM 暂不可用：{exc}")
+    return "\n".join(parts)
+
+
+def _extract_context_field(context: str, label: str) -> str:
+    prefix = f"{label}："
+    for line in context.splitlines():
+        line = line.strip()
+        if line.startswith(prefix):
+            return line[len(prefix) :].strip()
+    return ""
+
+
 class LlmService:
     def __init__(self, settings: Settings) -> None:
         self.provider = self._build_provider(settings)

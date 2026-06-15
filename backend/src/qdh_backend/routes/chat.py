@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
+from ..llm import build_fallback_reply
 from ..schemas import ChatRequest, ChatResponse
 from ..state import get_app_state
 from ..stream_protocol import (
@@ -13,7 +14,6 @@ from ..stream_protocol import (
     STREAM_STAGE_LLM,
     STREAM_STAGE_TTS,
     encode_done_frame,
-    encode_error_frame,
     encode_status_frame,
     encode_text_frame,
 )
@@ -42,7 +42,7 @@ async def chat_handler(payload: ChatRequest, request: Request):
             payload.fast_mode,
         )
     except Exception as exc:  # noqa: BLE001 - 兼容旧接口，错误作为文本回传
-        reply = f"Error: {exc}"
+        reply = build_fallback_reply(payload.message, context, exc)
     return ChatResponse(reply=reply)
 
 
@@ -69,4 +69,10 @@ async def _chat_stream(
             yield encode_text_frame(STREAM_FRAME_DELTA, chunk)
         yield encode_done_frame(reply="".join(reply_parts))
     except Exception as exc:  # noqa: BLE001
-        yield encode_error_frame(str(exc))
+        fallback = build_fallback_reply(payload.message, context, exc)
+        if not reply_parts:
+            yield encode_text_frame(STREAM_FRAME_DELTA, fallback)
+            yield encode_done_frame(reply=fallback)
+            return
+        partial = "".join(reply_parts)
+        yield encode_done_frame(reply=f"{partial}\n\n（后端回复已中断：{exc}）")

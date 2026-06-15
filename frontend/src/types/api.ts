@@ -11,13 +11,26 @@ export interface ModelInfo {
   verified?: boolean
 }
 
+export interface MapBounds {
+  south: number
+  north: number
+  west: number
+  east: number
+}
+
 export interface MapSearchResult {
-  name: string
-  address: string
-  location: {
-    lat: number
-    lng: number
-  }
+  place_id?: number | null
+  osm_type?: string | null
+  osm_id?: number | null
+  display_name: string
+  lat: number
+  lon: number
+  bounds: MapBounds
+  category?: string | null
+  kind?: string | null
+  importance?: number | null
+  map_url?: string
+  summary?: string
 }
 
 export interface AsrState {

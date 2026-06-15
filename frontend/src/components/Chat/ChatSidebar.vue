@@ -94,12 +94,6 @@ const handleKeyPress = (e: KeyboardEvent) => {
 <template>
   <div class="chat-sidebar">
     <div class="model-info">
-      <div class="info-text">
-        <strong>Models:</strong> Loading...
-        <div class="info-hint">
-          数字人形象：在线 GLB 3D 模型渲染，支持口型、动作状态与 OpenCV 姿态驱动。
-        </div>
-      </div>
       <div class="info-links">
         <RouterLink to="/config">配置网页</RouterLink>
         <RouterLink to="/models">管理控制台</RouterLink>
@@ -116,22 +110,6 @@ const handleKeyPress = (e: KeyboardEvent) => {
       <AButton @click="setExpression('sad')">难过</AButton>
       <AButton @click="setExpression('angry')">生气</AButton>
       <span class="intent-status">意图：{{ activeIntentLabel }}</span>
-    </div>
-
-    <div class="opencv-notice">
-      OpenCV 眼部追踪已迁移到
-      <RouterLink to="/config">配置网页</RouterLink>
-      。开启后，主页面会自动使用摄像头跟踪人眼并驱动数字人姿态。
-    </div>
-
-    <div class="asr-panel">
-      <div class="asr-head">
-        <div class="asr-title">实时 ASR</div>
-        <div class="asr-state" data-tone="idle">待机</div>
-      </div>
-      <div class="asr-text" data-tone="idle">
-        按住"按住说话（地图讲解）"开始实时转写，识别结果会在这里即时显示。
-      </div>
     </div>
 
     <div class="chat-history">
@@ -153,7 +131,7 @@ const handleKeyPress = (e: KeyboardEvent) => {
     <div class="controls">
       <div class="control-row">
         <ASwitch v-model:checked="chatStore.settings.tts_enabled" />
-        <span>TTS Enabled</span>
+        <span>语音播报</span>
       </div>
       <AInput
         v-model:value="inputText"
@@ -168,9 +146,6 @@ const handleKeyPress = (e: KeyboardEvent) => {
         @click="handleSend"
       >
         {{ isStreaming ? '发送中...' : '发送讲解' }}
-      </AButton>
-      <AButton type="primary" block style="background: #28a745">
-        按住说话（地图讲解）
       </AButton>
     </div>
   </div>
@@ -189,13 +164,8 @@ const handleKeyPress = (e: KeyboardEvent) => {
   border-bottom: 1px solid #333;
   font-size: 0.8em;
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
-}
-
-.info-hint {
-  margin-top: 4px;
-  color: #9aa4b2;
 }
 
 .info-links {
@@ -223,54 +193,6 @@ const handleKeyPress = (e: KeyboardEvent) => {
 .intent-status {
   margin-left: auto;
   color: #9aa4b2;
-}
-
-.opencv-notice {
-  margin: 8px 0 0;
-  padding: 10px 14px;
-  border: 1px solid #2b3550;
-  border-radius: 10px;
-  background: #101723;
-  color: #9ab3d4;
-  font-size: 0.88rem;
-}
-
-.opencv-notice a {
-  color: #4ea1ff;
-  text-decoration: none;
-}
-
-.asr-panel {
-  margin: 8px 20px 0;
-  padding: 12px 14px;
-  border: 1px solid #2f4f73;
-  border-radius: 12px;
-  background: linear-gradient(180deg, rgba(14, 22, 34, 0.98), rgba(11, 17, 26, 0.98));
-}
-
-.asr-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-}
-
-.asr-title {
-  font-weight: 700;
-  color: #e8f1ff;
-}
-
-.asr-state {
-  color: #8ac2ff;
-  font-size: 0.8rem;
-}
-
-.asr-text {
-  margin-top: 8px;
-  min-height: 3.2em;
-  color: #eef5ff;
-  line-height: 1.5;
-  font-size: 0.94rem;
 }
 
 .chat-history {
