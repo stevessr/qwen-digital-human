@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, shallowRef, watch } from 'vue'
 import { message as AMessage } from 'ant-design-vue'
+import { useBrowserASR } from '@/composables/useBrowserASR'
 import { useStreamingChat } from '@/composables/useStreamingChat'
 import { useTTS } from '@/composables/useTTS'
 import { useAvatarIntent } from '@/utils/intent'
@@ -13,14 +14,42 @@ const chatStore = useChatStore()
 const avatarStore = useAvatarStore()
 const { isStreaming, sendMessage } = useStreamingChat()
 const { play: playTTS } = useTTS()
+const {
+  isSupported: isBrowserASRSupported,
+  isListening: isASRListening,
+  finalText: asrFinalText,
+  interimText: asrInterimText,
+  errorMessage: asrErrorMessage,
+  start: startBrowserASR,
+  stop: stopBrowserASR,
+  abort: abortBrowserASR,
+} = useBrowserASR()
 const { detectIntents } = useAvatarIntent()
 
 const inputText = ref('')
 const activeIntentLabel = ref('待机')
+const asrBaseText = shallowRef('')
+const shouldSendAfterASRStop = shallowRef(false)
 const renderedMessages = computed(() => chatStore.messages.map(message => ({
   ...message,
   html: renderMarkdown(message.content),
 })))
+const asrTranscriptPreview = computed(() => [asrFinalText.value, asrInterimText.value]
+  .map(text => text.trim())
+  .filter(Boolean)
+  .join(' ')
+  .trim())
+const canUseBrowserASR = computed(() => (
+  chatStore.settings.browser_asr_mode
+  && isBrowserASRSupported.value
+  && !isStreaming.value
+))
+const asrButtonLabel = computed(() => {
+  if (isASRListening.value) return '松开发送'
+  if (!chatStore.settings.browser_asr_mode) return '浏览器 ASR 已关闭'
+  if (!isBrowserASRSupported.value) return '当前浏览器不支持 ASR'
+  return '按住说话'
+})
 
 const applyAvatarIntent = (intent: AvatarIntent) => {
   if (intent.kind === 'switch_persona_cycle') {
@@ -94,6 +123,79 @@ const handleKeyPress = (e: KeyboardEvent) => {
     void handleSend()
   }
 }
+
+const mergeASRTranscript = (transcript: string) => {
+  const spokenText = transcript.trim()
+  if (!spokenText) return
+
+  const prefix = asrBaseText.value.trim()
+  inputText.value = prefix ? `${prefix}\n${spokenText}` : spokenText
+}
+
+const handleASRPointerDown = (event: PointerEvent) => {
+  event.preventDefault()
+
+  if (isStreaming.value || isASRListening.value) return
+  if (!chatStore.settings.browser_asr_mode) {
+    AMessage.warning('请先启用浏览器 ASR。')
+    return
+  }
+  if (!isBrowserASRSupported.value) {
+    AMessage.error('当前浏览器不支持 SpeechRecognition / webkitSpeechRecognition。')
+    return
+  }
+
+  if (event.currentTarget instanceof HTMLElement) {
+    event.currentTarget.setPointerCapture?.(event.pointerId)
+  }
+
+  asrBaseText.value = inputText.value.trim()
+  shouldSendAfterASRStop.value = true
+  inputText.value = asrBaseText.value
+  avatarStore.applyExpressionPreset('thinking')
+
+  try {
+    startBrowserASR({ lang: 'zh-CN' })
+  } catch (err) {
+    shouldSendAfterASRStop.value = false
+    AMessage.error(err instanceof Error ? err.message : '浏览器 ASR 启动失败。')
+  }
+}
+
+const stopASRAndMaybeSend = async () => {
+  if (!shouldSendAfterASRStop.value && !isASRListening.value) return
+
+  const shouldSend = shouldSendAfterASRStop.value
+  shouldSendAfterASRStop.value = false
+
+  const transcript = await stopBrowserASR()
+  mergeASRTranscript(transcript)
+
+  if (!shouldSend) return
+  if (!inputText.value.trim()) {
+    AMessage.warning(asrErrorMessage.value || '没有识别到语音。')
+    return
+  }
+
+  await handleSend()
+}
+
+const cancelASR = () => {
+  shouldSendAfterASRStop.value = false
+  abortBrowserASR()
+}
+
+watch(asrTranscriptPreview, (transcript) => {
+  if (isASRListening.value) {
+    mergeASRTranscript(transcript)
+  }
+})
+
+watch(asrErrorMessage, (message) => {
+  if (message && message !== '语音识别已取消') {
+    AMessage.warning(message)
+  }
+})
 </script>
 
 <template>
@@ -138,12 +240,34 @@ const handleKeyPress = (e: KeyboardEvent) => {
         <ASwitch v-model:checked="chatStore.settings.tts_enabled" />
         <span>语音播报</span>
       </div>
+      <div class="control-row compact">
+        <ASwitch
+          v-model:checked="chatStore.settings.browser_tts_enabled"
+          :disabled="!chatStore.settings.tts_enabled"
+        />
+        <span>浏览器 TTS</span>
+        <ASwitch v-model:checked="chatStore.settings.browser_asr_mode" />
+        <span>浏览器 ASR</span>
+      </div>
       <AInput
         v-model:value="inputText"
         placeholder="输入地点、路线或地图问题..."
         :disabled="isStreaming"
         @keypress="handleKeyPress"
       />
+      <AButton
+        class="voice-hold-button"
+        :class="{ listening: isASRListening }"
+        block
+        :disabled="!canUseBrowserASR"
+        @pointerdown="handleASRPointerDown"
+        @pointerup="stopASRAndMaybeSend"
+        @pointercancel="cancelASR"
+        @lostpointercapture="stopASRAndMaybeSend"
+        @contextmenu.prevent
+      >
+        {{ asrButtonLabel }}
+      </AButton>
       <AButton
         type="primary"
         block
@@ -326,5 +450,26 @@ const handleKeyPress = (e: KeyboardEvent) => {
   align-items: center;
   gap: 10px;
   font-size: 0.9em;
+}
+
+.control-row.compact {
+  gap: 8px;
+  flex-wrap: wrap;
+  color: #b9c4d6;
+}
+
+.voice-hold-button {
+  border-color: #245c39;
+  background: #183c28;
+  color: #bdf8d3;
+  touch-action: none;
+  user-select: none;
+}
+
+.voice-hold-button.listening {
+  border-color: #24c35a;
+  background: #17823d;
+  color: #fff;
+  box-shadow: 0 0 0 2px rgba(36, 195, 90, 0.18);
 }
 </style>
