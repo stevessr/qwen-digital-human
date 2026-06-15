@@ -29,6 +29,7 @@ const { detectIntents } = useAvatarIntent()
 const inputText = shallowRef('')
 const activeIntentLabel = shallowRef('待机')
 const asrBaseText = shallowRef('')
+const isHoldingASR = shallowRef(false)
 const shouldSendAfterASRStop = shallowRef(false)
 const renderedMessages = computed(() => chatStore.messages.map(message => ({
   ...message,
@@ -45,7 +46,7 @@ const canUseBrowserASR = computed(() => (
   && !isStreaming.value
 ))
 const asrButtonLabel = computed(() => {
-  if (isASRListening.value) return '松开发送'
+  if (isHoldingASR.value) return '松开发送'
   if (!chatStore.settings.browser_asr_mode) return '浏览器 ASR 已关闭'
   if (!isBrowserASRSupported.value) return '当前浏览器不支持 ASR'
   return '按住说话'
@@ -150,6 +151,7 @@ const handleASRPointerDown = (event: PointerEvent) => {
   }
 
   asrBaseText.value = inputText.value.trim()
+  isHoldingASR.value = true
   shouldSendAfterASRStop.value = true
   inputText.value = asrBaseText.value
   avatarStore.applyExpressionPreset('thinking')
@@ -157,6 +159,7 @@ const handleASRPointerDown = (event: PointerEvent) => {
   try {
     startBrowserASR({ lang: 'zh-CN' })
   } catch (err) {
+    isHoldingASR.value = false
     shouldSendAfterASRStop.value = false
     AMessage.error(err instanceof Error ? err.message : '浏览器 ASR 启动失败。')
   }
@@ -165,6 +168,7 @@ const handleASRPointerDown = (event: PointerEvent) => {
 const stopASRAndMaybeSend = async () => {
   if (!shouldSendAfterASRStop.value && !isASRListening.value) return
 
+  isHoldingASR.value = false
   const shouldSend = shouldSendAfterASRStop.value
   shouldSendAfterASRStop.value = false
 
@@ -181,6 +185,7 @@ const stopASRAndMaybeSend = async () => {
 }
 
 const cancelASR = () => {
+  isHoldingASR.value = false
   shouldSendAfterASRStop.value = false
   abortBrowserASR()
 }
@@ -264,6 +269,7 @@ watch(asrErrorMessage, (message) => {
         @pointerup="stopASRAndMaybeSend"
         @pointercancel="cancelASR"
         @lostpointercapture="stopASRAndMaybeSend"
+        @click="stopASRAndMaybeSend"
         @contextmenu.prevent
       >
         {{ asrButtonLabel }}

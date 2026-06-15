@@ -52,6 +52,8 @@ interface BrowserASRStartOptions {
   lang?: string
 }
 
+const STOP_TIMEOUT_MS = 900
+
 const getRecognitionConstructor = (): BrowserSpeechRecognitionConstructor | null => {
   if (typeof window === 'undefined') return null
   const speechWindow = window as SpeechRecognitionWindow
@@ -84,6 +86,7 @@ export function useBrowserASR() {
   let recognition: BrowserSpeechRecognition | null = null
   let stopResolver: ((text: string) => void) | null = null
   let stopPromise: Promise<string> | null = null
+  let stopTimer: number | null = null
 
   const currentTranscript = () => [finalText.value, interimText.value]
     .map(part => part.trim())
@@ -93,6 +96,10 @@ export function useBrowserASR() {
 
   const resolveStop = () => {
     const text = currentTranscript()
+    if (stopTimer !== null) {
+      window.clearTimeout(stopTimer)
+      stopTimer = null
+    }
     stopResolver?.(text)
     stopResolver = null
     stopPromise = null
@@ -129,18 +136,27 @@ export function useBrowserASR() {
 
     stopPromise = new Promise(resolve => {
       stopResolver = resolve
-      if (!recognition || !isListening.value) {
-        resolve(resolveStop())
+      if (!recognition) {
+        resolveStop()
         return
       }
+
+      isListening.value = false
 
       try {
         recognition.stop()
       } catch {
-        isListening.value = false
-        resolve(resolveStop())
+        finalText.value = resolveStop()
+        interimText.value = ''
         detachRecognition()
+        return
       }
+
+      stopTimer = window.setTimeout(() => {
+        finalText.value = resolveStop()
+        interimText.value = ''
+        detachRecognition()
+      }, STOP_TIMEOUT_MS)
     })
 
     return stopPromise
