@@ -1,6 +1,6 @@
 # Qwen Digital Human - Vue3 Frontend
 
-前端 Vue3 + TypeScript + Ant Design Vue + Vite 实现。
+前端 Vue3 + TypeScript + Ant Design Vue + Vite 实现。数字人形象通过已有在线 GLB 3D 模型渲染，并叠加口型能量、表情状态、动作状态与 OpenCV 姿态驱动。
 
 ## 开发
 
@@ -8,7 +8,7 @@
 # 安装依赖
 npm install
 
-# 启动开发服务器（确保后端 Rust 服务器在 http://127.0.0.1:3000 运行）
+# 启动开发服务器（确保 Python 后端在 http://127.0.0.1:3000 运行）
 npm run dev
 
 # 类型检查
@@ -24,7 +24,7 @@ npm run build
 frontend/
 ├── src/
 │   ├── components/      # Vue 组件
-│   │   ├── Avatar/      # Live2D 数字人
+│   │   ├── Avatar/      # 在线 3D 数字人
 │   │   ├── Chat/        # 聊天面板
 │   │   ├── Map/         # 地图讲解
 │   │   └── ...
@@ -33,8 +33,7 @@ frontend/
 │   ├── types/           # TypeScript 类型定义
 │   └── api/             # API 调用封装
 ├── public/
-│   ├── vendor/          # 第三方库 (PIXI.js, Live2D, OpenCV.js)
-│   └── live2d_models/   # Live2D 模型资源
+│   └── vendor/          # OpenCV.js 与级联文件
 └── vite.config.ts
 ```
 
@@ -46,14 +45,15 @@ frontend/
 - **Ant Design Vue 4** - UI 组件库
 - **Pinia** - 状态管理
 - **VueUse** - Composition 工具集
+- **model-viewer** - 通过 Web Component 渲染在线 GLB 3D 模型
 
 ## 功能模块
 
-### 1. Live2D 数字人
-- 模型加载和渲染 (PIXI.js)
-- 表情和姿态控制
-- 模型切换 (Shizuku, Haru 01, Haru 02)
-- 拖拽定位
+### 1. 在线 3D 数字人
+- 通过已有在线 GLB 模型渲染数字人形象
+- 支持地图讲解员、专业导览员、元气助手三种形象
+- 支持口型能量、表情状态、动作状态与拖拽定位
+- 支持 OpenCV 面部追踪驱动头部姿态
 
 ### 2. Face Tracking (OpenCV.js)
 - 实时面部追踪
@@ -80,5 +80,5 @@ frontend/
 
 Vite 开发服务器自动代理以下路径到后端：
 - `/api/*` → `http://127.0.0.1:3000`
-- `/vendor/*` → `http://127.0.0.1:3000`
-- `/live2d_models/*` → `http://127.0.0.1:3000`
+
+OpenCV 静态资源由 Vite `public/vendor/` 直接提供；在线 3D 模型由 `<model-viewer>` 从公开 GLB URL 加载。

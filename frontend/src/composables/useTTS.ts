@@ -58,7 +58,7 @@ export async function playCloudTTS(text: string): Promise<void> {
 export function useTTS() {
   const avatarStore = useAvatarStore()
   const isPlaying = ref(false)
-  let mouthTimer: ReturnType<typeof window.setInterval> | null = null
+  let mouthTimer: number | null = null
 
   const startMouthAnimation = () => {
     stopMouthAnimation()

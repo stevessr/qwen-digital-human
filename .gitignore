@@ -27,8 +27,6 @@ Thumbs.db
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-static/live2d_models
-frontend/public/live2d_models
 
 # Python backend
 backend/.venv/

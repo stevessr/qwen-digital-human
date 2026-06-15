@@ -1,6 +1,6 @@
-# Qwen Digital Human (Python + WebGPU)
+# Qwen Digital Human (Python + 在线 3D 数字人)
 
-地图数字人项目：Python 后端提供同源 API 与静态资源服务，前端使用 WebGPU/Live2D 渲染数字人。LLM 默认通过本地 Ollama 调用 Ollama Cloud 托管模型，也可切换到本地模型或 OpenAI-compatible 外部 API。
+地图数字人项目：Python 后端提供同源 API 与静态资源服务，前端通过已有在线 GLB 3D 模型渲染数字人，并叠加口型、表情状态和 OpenCV 姿态驱动。LLM 默认通过本地 Ollama 调用 Ollama Cloud 托管模型，也可切换到本地模型或 OpenAI-compatible 外部 API。
 
 ## 当前状态
 

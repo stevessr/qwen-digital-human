@@ -7,7 +7,13 @@ import AutoImport from 'unplugin-auto-import/vite'
 
 export default defineConfig({
   plugins: [
-    vue(),
+    vue({
+      template: {
+        compilerOptions: {
+          isCustomElement: tag => tag === 'model-viewer',
+        },
+      },
+    }),
     Components({
       resolvers: [
         AntDesignVueResolver({
@@ -37,7 +43,7 @@ export default defineConfig({
         target: 'http://127.0.0.1:3000',
         changeOrigin: true,
       },
-      // '/vendor' and '/live2d_models' are served from public/ during dev.
+      // OpenCV assets are served from public/vendor during dev.
     },
   },
   build: {

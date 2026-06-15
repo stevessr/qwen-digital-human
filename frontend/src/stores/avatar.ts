@@ -78,7 +78,7 @@ export const useAvatarStore = defineStore('avatar', () => {
   const cyclePersona = () => {
     const currentIndex = PERSONA_SEQUENCE.indexOf(persona.value)
     const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % PERSONA_SEQUENCE.length : 0
-    setPersona(PERSONA_SEQUENCE[nextIndex])
+    setPersona(PERSONA_SEQUENCE[nextIndex] ?? 'guide')
     return persona.value
   }
 

@@ -128,7 +128,7 @@ const selectFromCard = async (name: string) => {
     <section class="runtime-section">
       <h2>浏览器能力与前端资源</h2>
       <p class="section-desc">
-        语音识别和语音合成都由浏览器 Web Speech APIs 提供；Live2D 与 OpenCV 仍使用前端内置静态资源。
+        语音识别和语音合成都由浏览器 Web Speech APIs 提供；数字人形象通过已有在线 GLB 3D 模型渲染，OpenCV 仍使用前端内置静态资源。
       </p>
       <div class="runtime-grid">
         <ACard

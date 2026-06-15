@@ -1,5 +1,5 @@
 // ============================================================
-// Qwen Digital Human — Live2D Avatar + Visualizer
+// Qwen Digital Human — Online 3D Avatar + Visualizer
 // ============================================================
 
 let avatarState = {
@@ -22,9 +22,8 @@ let avatarState = {
     },
     waveform: new Array(128).fill(0),
     startTime: performance.now(),
+    persona: 'guide',
 };
-let live2dApp = null;
-let live2dModel = null;
 let waveformLoopStarted = false;
 const AVATAR_FLOAT_POSITION_STORAGE_KEY = 'qdh.avatarFloatPosition';
 const AVATAR_FLOAT_DEFAULT_POSITION = { left: 18, top: 18 };
@@ -153,7 +152,7 @@ window.updateAvatarState = function(newState) {
         };
     }
     if (newState.waveform) avatarState.waveform = newState.waveform;
-    if (live2dModel) applyLive2DState(live2dModel);
+    refreshAvatarRendererState();
 };
 
 const ASSISTANT_LABEL = '地图数字人';
@@ -652,144 +651,100 @@ const faceTrackingRuntime = {
 };
 let faceTrackingControlChannel = null;
 
-const LIVE2D_SCRIPT_URLS = [
-    '/vendor/pixi.min.js',
-    '/vendor/live2d.min.js',
-    '/vendor/pixi-live2d-display-cubism2.min.js',
-];
-const LIVE2D_MODEL_LIBRARY = {
-    shizuku: {
-        label: 'Shizuku',
-        url: '/live2d_models/shizuku/assets/shizuku.model.json',
+const DIGITAL_HUMAN_PERSONAS = {
+    guide: {
+        label: '地图讲解员',
+        modelUrl: 'https://modelviewer.dev/shared-assets/models/NeilArmstrong.glb',
+        cameraOrbit: '0deg 68deg 2.35m',
+        fieldOfView: '26deg',
+        jacket: ['#2e3b59', '#1e2638', '#141925'],
+        hair: ['#1b120f', '#231812', '#0d0908'],
+        iris: '#2d3d58',
     },
-    haru01: {
-        label: 'Haru 01',
-        url: '/live2d_models/haru01/assets/haru01.model.json',
+    professional: {
+        label: '专业导览员',
+        modelUrl: 'https://modelviewer.dev/shared-assets/models/Astronaut.glb',
+        cameraOrbit: '-8deg 66deg 2.55m',
+        fieldOfView: '25deg',
+        jacket: ['#273a65', '#17233f', '#0d1324'],
+        hair: ['#172033', '#101827', '#05070d'],
+        iris: '#315aa0',
     },
-    haru02: {
-        label: 'Haru 02',
-        url: '/live2d_models/haru02/assets/haru02.model.json',
+    energetic: {
+        label: '元气助手',
+        modelUrl: 'https://modelviewer.dev/shared-assets/models/RobotExpressive.glb',
+        cameraOrbit: '8deg 68deg 2.25m',
+        fieldOfView: '28deg',
+        jacket: ['#248b79', '#123f4f', '#0a2634'],
+        hair: ['#263d50', '#132431', '#07111a'],
+        iris: '#0f9075',
     },
 };
-const LIVE2D_MODEL_SEQUENCE = ['shizuku', 'haru01', 'haru02'];
-const LIVE2D_DEFAULT_MODEL_KEY = 'shizuku';
-const LIVE2D_MODEL_STORAGE_KEY = 'qdh.live2dModelKey';
-let selectedLive2DModelKey = LIVE2D_MODEL_LIBRARY[localStorage.getItem(LIVE2D_MODEL_STORAGE_KEY)]
-    ? localStorage.getItem(LIVE2D_MODEL_STORAGE_KEY)
-    : LIVE2D_DEFAULT_MODEL_KEY;
+const DIGITAL_HUMAN_PERSONA_SEQUENCE = ['guide', 'professional', 'energetic'];
+const DIGITAL_HUMAN_PERSONA_STORAGE_KEY = 'qdh.digitalHumanPersona';
+let selectedDigitalHumanPersonaKey = DIGITAL_HUMAN_PERSONAS[localStorage.getItem(DIGITAL_HUMAN_PERSONA_STORAGE_KEY)]
+    ? localStorage.getItem(DIGITAL_HUMAN_PERSONA_STORAGE_KEY)
+    : 'guide';
+let avatarInteractionLockUntil = 0;
 
-const live2dScriptCache = new Map();
-const live2dManifestCache = new Map();
-let live2dResizeHandler = null;
-let live2dPointerHandler = null;
-let live2dHitHandler = null;
-let live2dInteractionLockUntil = 0;
+function refreshAvatarRendererState() {
+    const modelViewer = document.getElementById('avatar-model-viewer');
+    const modelFrame = document.getElementById('avatar-model-frame');
+    const aura = document.getElementById('avatar-aura');
+    const spec = getDigitalHumanPersonaSpec(avatarState.persona);
+    const renderedState = getBlendedAvatarState();
+    const posture = renderedState.posture || {};
+    const expression = renderedState.expression || {};
+    const energy = Math.max(0, Math.min(1, expression.mouth_open || 0));
 
-function loadScriptOnce(src) {
-    if (live2dScriptCache.has(src)) {
-        return live2dScriptCache.get(src);
-    }
-
-    const promise = new Promise((resolve, reject) => {
-        const existing = Array.from(document.querySelectorAll('script[data-live2d-src]'))
-            .find((script) => script.dataset.live2dSrc === src);
-        if (existing) {
-            if (existing.dataset.live2dLoaded === 'true') {
-                resolve();
-                return;
-            }
-            existing.addEventListener('load', () => resolve(), { once: true });
-            existing.addEventListener('error', () => reject(new Error(`Failed to load ${src}`)), { once: true });
-            return;
+    if (modelViewer) {
+        if (modelViewer.getAttribute('src') !== spec.modelUrl) {
+            modelViewer.setAttribute('src', spec.modelUrl);
         }
-
-        const script = document.createElement('script');
-        script.src = src;
-        script.async = false;
-        script.dataset.live2dSrc = src;
-        script.addEventListener('load', () => {
-            script.dataset.live2dLoaded = 'true';
-            resolve();
-        }, { once: true });
-        script.addEventListener('error', () => reject(new Error(`Failed to load ${src}`)), { once: true });
-        document.head.appendChild(script);
-    });
-
-    live2dScriptCache.set(src, promise);
-    return promise;
-}
-
-async function ensureLive2DDependencies() {
-    for (const src of LIVE2D_SCRIPT_URLS) {
-        await loadScriptOnce(src);
+        modelViewer.setAttribute('camera-orbit', spec.cameraOrbit);
+        modelViewer.setAttribute('field-of-view', spec.fieldOfView);
+        modelViewer.setAttribute('alt', `${spec.label} 3D 数字人模型`);
     }
 
-    if (!window.PIXI?.live2d?.Live2DModel) {
-        throw new Error('Live2D runtime did not initialize correctly.');
+    if (modelFrame) {
+        modelFrame.style.transform = [
+            `translateY(${(Math.sin((performance.now() - avatarState.startTime) / 740) * -4).toFixed(2)}px)`,
+            `rotateZ(${((posture.head_roll || 0) * 5).toFixed(2)}deg)`,
+            `rotateY(${((posture.head_yaw || 0) * 8).toFixed(2)}deg)`,
+            `rotateX(${((posture.head_pitch || 0) * -5).toFixed(2)}deg)`,
+        ].join(' ');
     }
 
-    if (window.PIXI?.Ticker) {
-        window.PIXI.live2d.Live2DModel.registerTicker(window.PIXI.Ticker);
+    if (aura) {
+        aura.style.opacity = String(0.38 + energy * 0.32);
+        aura.style.transform = `scale(${1 + energy * 0.08})`;
     }
 }
 
-function getLive2DModelKey(key = selectedLive2DModelKey) {
-    return LIVE2D_MODEL_LIBRARY[key] ? key : LIVE2D_DEFAULT_MODEL_KEY;
+function getDigitalHumanPersonaKey(key = selectedDigitalHumanPersonaKey) {
+    return DIGITAL_HUMAN_PERSONAS[key] ? key : 'guide';
 }
 
-function getLive2DModelSpec(key = selectedLive2DModelKey) {
-    return LIVE2D_MODEL_LIBRARY[getLive2DModelKey(key)];
+function getDigitalHumanPersonaSpec(key = selectedDigitalHumanPersonaKey) {
+    return DIGITAL_HUMAN_PERSONAS[getDigitalHumanPersonaKey(key)];
 }
 
-function persistLive2DModelKey(key) {
-    selectedLive2DModelKey = getLive2DModelKey(key);
-    localStorage.setItem(LIVE2D_MODEL_STORAGE_KEY, selectedLive2DModelKey);
-    return selectedLive2DModelKey;
+function persistDigitalHumanPersonaKey(key) {
+    selectedDigitalHumanPersonaKey = getDigitalHumanPersonaKey(key);
+    avatarState.persona = selectedDigitalHumanPersonaKey;
+    localStorage.setItem(DIGITAL_HUMAN_PERSONA_STORAGE_KEY, selectedDigitalHumanPersonaKey);
+    return selectedDigitalHumanPersonaKey;
 }
 
-function setLive2DIntentStatus(message) {
+function setDigitalHumanIntentStatus(message) {
     const intentStatus = document.getElementById('intent-status');
     if (intentStatus) {
         intentStatus.textContent = message;
     }
 }
 
-async function loadLive2DManifest(modelKey = selectedLive2DModelKey) {
-    const key = getLive2DModelKey(modelKey);
-    if (live2dManifestCache.has(key)) {
-        return live2dManifestCache.get(key);
-    }
-
-    const spec = getLive2DModelSpec(key);
-    const response = await fetch(spec.url, { cache: 'no-cache' });
-    if (!response.ok) {
-        throw new Error(`Failed to load Live2D manifest for ${spec.label}: HTTP ${response.status}`);
-    }
-
-    const manifest = await response.json();
-    live2dManifestCache.set(key, manifest);
-    return manifest;
-}
-
 function normalizeIntentText(text) {
     return String(text || '').trim().replace(/\s+/g, ' ');
-}
-
-function pickLive2DExpressionName(manifest, intent) {
-    const expressions = Array.isArray(manifest?.expressions)
-        ? manifest.expressions.map((entry) => entry?.name || entry?.file).filter(Boolean)
-        : [];
-    if (!expressions.length) return null;
-
-    const intentIndexMap = {
-        happy: 0,
-        thinking: 1,
-        surprised: 2,
-        sad: 3,
-        angry: expressions.length - 1,
-    };
-    const index = Math.min(expressions.length - 1, Math.max(0, intentIndexMap[intent] ?? 0));
-    return expressions[index] || null;
 }
 
 function detectAvatarIntents(text) {
@@ -800,18 +755,16 @@ function detectAvatarIntents(text) {
     const lower = normalized.toLowerCase();
     const intents = [];
 
-    if (
-        /切换.*模型|换.*模型|模型.*切换|切换头像|换头像|切换角色|换角色|下一个模型|下一只|换一个|切到下一个/.test(compact)
-    ) {
-        intents.push({ kind: 'switch_model_cycle', label: '切换模型' });
+    if (/切换.*形象|换.*形象|形象.*切换|切换头像|换头像|切换角色|换角色|下一个形象|换一个|切到下一个/.test(compact)) {
+        intents.push({ kind: 'switch_persona_cycle', label: '切换形象' });
     }
 
-    if (/shizuku/.test(lower) || /可爱|萌|软萌|甜|少女|清新/.test(compact)) {
-        intents.push({ kind: 'switch_model', modelKey: 'shizuku', label: '切到 Shizuku' });
-    } else if (/haru\s*0?1/.test(lower) || /正式|专业|稳重|讲解|导览|地图讲解/.test(compact)) {
-        intents.push({ kind: 'switch_model', modelKey: 'haru01', label: '切到 Haru 01' });
-    } else if (/haru\s*0?2/.test(lower) || /活泼|元气|俏皮|灵动|元气满满/.test(compact)) {
-        intents.push({ kind: 'switch_model', modelKey: 'haru02', label: '切到 Haru 02' });
+    if (/专业|稳重|讲解|导览|地图讲解|professional/.test(compact) || /professional/.test(lower)) {
+        intents.push({ kind: 'switch_persona', personaKey: 'professional', label: '专业导览员' });
+    } else if (/活泼|元气|俏皮|灵动|元气满满|energetic/.test(compact) || /energetic/.test(lower)) {
+        intents.push({ kind: 'switch_persona', personaKey: 'energetic', label: '元气助手' });
+    } else if (/亲和|默认|地图助手|清新|自然|guide/.test(compact) || /default|guide/.test(lower)) {
+        intents.push({ kind: 'switch_persona', personaKey: 'guide', label: '地图讲解员' });
     }
 
     if (/开心|高兴|快乐|太好了|真棒|赞|喜欢|谢谢|鼓励|好耶|smile|happy|cheerful/.test(compact) || /\b(?:smile|happy|cheerful)\b/.test(lower)) {
@@ -839,165 +792,88 @@ function detectAvatarIntents(text) {
     return intents;
 }
 
-function isLive2DInteractionLocked() {
-    return performance.now() < live2dInteractionLockUntil;
+function isAvatarInteractionLocked() {
+    return performance.now() < avatarInteractionLockUntil;
 }
 
-function lockLive2DInteraction(durationMs = 350) {
-    live2dInteractionLockUntil = Math.max(live2dInteractionLockUntil, performance.now() + durationMs);
+function lockAvatarInteraction(durationMs = 280) {
+    avatarInteractionLockUntil = Math.max(avatarInteractionLockUntil, performance.now() + durationMs);
 }
 
-function teardownLive2DAvatar() {
-    const canvas = document.getElementById('webgpu-canvas');
-
-    if (live2dResizeHandler) {
-        window.removeEventListener('resize', live2dResizeHandler);
-        live2dResizeHandler = null;
-    }
-    if (live2dPointerHandler && canvas) {
-        canvas.removeEventListener('pointerdown', live2dPointerHandler);
-        live2dPointerHandler = null;
-    }
-    if (live2dModel && live2dHitHandler && typeof live2dModel.off === 'function') {
-        try {
-            live2dModel.off('hit', live2dHitHandler);
-        } catch {
-            // Ignore teardown issues.
-        }
-    }
-    live2dHitHandler = null;
-
-    if (live2dApp) {
-        try {
-            live2dApp.destroy(true, { children: true, texture: true, baseTexture: true });
-        } catch {
-            // Ignore teardown issues.
-        }
-    }
-    live2dApp = null;
-    live2dModel = null;
+function applyDigitalHumanExpression(intentName) {
+    const presets = {
+        happy: { mouth_open: 0.24, smile: 0.72, blink: 0.0 },
+        thinking: { mouth_open: 0.06, smile: 0.12, blink: 0.12 },
+        surprised: { mouth_open: 0.64, smile: 0.08, blink: 0.0 },
+        sad: { mouth_open: 0.08, smile: -0.42, blink: 0.18 },
+        angry: { mouth_open: 0.18, smile: -0.72, blink: 0.08 },
+    };
+    avatarState.expression = {
+        ...avatarState.expression,
+        ...(presets[intentName] || presets.happy),
+    };
+    refreshAvatarRendererState();
+    return true;
 }
 
-function setCoreParameter(coreModel, candidateIds, value, weight = 1) {
-    if (!coreModel || typeof coreModel.setParameterValueById !== 'function') return false;
-    for (const id of candidateIds) {
-        try {
-            coreModel.setParameterValueById(id, value, weight);
-            return true;
-        } catch {
-            // Try the next alias.
-        }
+async function triggerDigitalHumanMotion(motionName) {
+    if (!motionName || isAvatarInteractionLocked()) return false;
+    lockAvatarInteraction();
+
+    const originalPosture = { ...avatarState.posture };
+    const applyPosture = (posture) => {
+        avatarState.posture = { ...avatarState.posture, ...posture };
+        refreshAvatarRendererState();
+    };
+
+    if (motionName === 'flick_head') {
+        applyPosture({ head_yaw: 0.28, head_roll: -0.10 });
+        window.setTimeout(() => applyPosture({ head_yaw: -0.16, head_roll: 0.06 }), 180);
+    } else if (motionName === 'tap_body') {
+        applyPosture({ head_pitch: 0.16 });
+        window.setTimeout(() => applyPosture({ head_pitch: -0.06 }), 180);
+    } else if (motionName === 'pinch_in') {
+        applyPosture({ head_pitch: 0.14, head_yaw: -0.08 });
+    } else if (motionName === 'shake') {
+        applyPosture({ head_yaw: -0.22, head_roll: 0.10 });
+        window.setTimeout(() => applyPosture({ head_yaw: 0.22, head_roll: -0.10 }), 160);
+        window.setTimeout(() => applyPosture({ head_yaw: -0.12, head_roll: 0.06 }), 320);
     }
-    return false;
+
+    window.setTimeout(() => {
+        avatarState.posture = originalPosture;
+        refreshAvatarRendererState();
+    }, 620);
+    return true;
 }
 
-function applyLive2DState(model) {
-    const coreModel = model?.internalModel?.coreModel;
-    if (!coreModel) return;
-
-    const elapsed = (performance.now() - avatarState.startTime) / 1000.0;
-    const renderedState = getBlendedAvatarState();
-    const expression = renderedState.expression || {};
-    const posture = renderedState.posture || {};
-    const mouthOpen = clampNumber(expression.mouth_open ?? 0, 0, 1, 0);
-    const smile = clampNumber(expression.smile ?? 0, -1, 1, 0);
-    const blink = clampNumber(expression.blink ?? 0, 0, 1, 0);
-    const yaw = clampNumber(posture.head_yaw ?? 0, -1, 1, 0);
-    const pitch = clampNumber(posture.head_pitch ?? 0, -1, 1, 0);
-    const roll = clampNumber(posture.head_roll ?? 0, -1, 1, 0);
-    const breath = Math.sin(elapsed * 1.4) * 0.05;
-
-    setCoreParameter(coreModel, ['ParamAngleX', 'PARAM_ANGLE_X'], yaw * 18);
-    setCoreParameter(coreModel, ['ParamAngleY', 'PARAM_ANGLE_Y'], pitch * 16);
-    setCoreParameter(coreModel, ['ParamAngleZ', 'PARAM_ANGLE_Z'], roll * 10);
-    setCoreParameter(coreModel, ['ParamBodyAngleX', 'PARAM_BODY_ANGLE_X'], yaw * 8 + breath);
-    setCoreParameter(coreModel, ['ParamEyeLOpen', 'PARAM_EYE_L_OPEN'], 1 - blink);
-    setCoreParameter(coreModel, ['ParamEyeROpen', 'PARAM_EYE_R_OPEN'], 1 - blink);
-    setCoreParameter(coreModel, ['ParamMouthOpenY', 'PARAM_MOUTH_OPEN_Y'], mouthOpen);
-    setCoreParameter(coreModel, ['ParamMouthForm', 'PARAM_MOUTH_FORM'], 0.5 + smile * 0.35);
-}
-
-async function triggerLive2DMotion(motionName, index = 0, { skipLock = false } = {}) {
-    if (!live2dModel || !motionName || (!skipLock && isLive2DInteractionLocked())) return false;
-
-    if (!skipLock) {
-        lockLive2DInteraction();
-    }
-    try {
-        return await live2dModel.motion(motionName, index);
-    } catch (err) {
-        console.warn(`Live2D motion "${motionName}" failed:`, err);
-        return false;
-    }
-}
-
-async function triggerLive2DExpression(intentName) {
-    if (!live2dModel || isLive2DInteractionLocked()) return false;
-
-    const manifest = live2dManifestCache.get(selectedLive2DModelKey);
-    const expressionName = pickLive2DExpressionName(manifest, intentName);
-    const fallbackMotion = {
-        happy: 'tap_body',
-        thinking: 'idle',
-        surprised: 'flick_head',
-        sad: 'pinch_in',
-        angry: 'shake',
-    }[intentName] || 'tap_body';
-
-    lockLive2DInteraction();
-    if (expressionName && typeof live2dModel.expression === 'function') {
-        try {
-            const success = await live2dModel.expression(expressionName);
-            if (success) return true;
-        } catch (err) {
-            console.warn(`Live2D expression "${expressionName}" failed:`, err);
-        }
-    }
-
-    return await triggerLive2DMotion(fallbackMotion, 0, { skipLock: true });
-}
-
-async function switchLive2DModel(modelKey, reason = 'manual') {
-    if (isLive2DInteractionLocked()) return false;
-    const nextKey = getLive2DModelKey(modelKey);
-    const spec = getLive2DModelSpec(nextKey);
-    if (!spec) return false;
-
-    lockLive2DInteraction(1200);
-    persistLive2DModelKey(nextKey);
-    setLive2DIntentStatus(`意图：切换模型 → ${spec.label}${reason ? `（${reason}）` : ''}`);
-    try {
-        await initLive2DAvatar(nextKey);
-        return true;
-    } catch (err) {
-        console.warn(`Live2D model switch to ${spec.label} failed:`, err);
-        setLive2DIntentStatus(`意图：切换失败 → ${spec.label}`);
-        try {
-            await initFallbackAvatar();
-        } catch {
-            // Ignore fallback failures; the error has already been surfaced.
-        }
-        return false;
-    }
+async function switchDigitalHumanPersona(personaKey, reason = 'manual') {
+    const nextKey = persistDigitalHumanPersonaKey(personaKey);
+    const spec = getDigitalHumanPersonaSpec(nextKey);
+    setDigitalHumanIntentStatus(`意图：切换形象 → ${spec.label}${reason ? `（${reason}）` : ''}`);
+    refreshAvatarRendererState();
+    return true;
 }
 
 async function triggerAvatarIntent(intent, context = {}) {
     if (!intent) return false;
 
     switch (intent.kind) {
-        case 'switch_model_cycle': {
-            const currentIndex = LIVE2D_MODEL_SEQUENCE.indexOf(selectedLive2DModelKey);
-            const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % LIVE2D_MODEL_SEQUENCE.length : 0;
-            return await switchLive2DModel(LIVE2D_MODEL_SEQUENCE[nextIndex], intent.label || context.source || 'manual');
+        case 'switch_persona_cycle': {
+            const currentIndex = DIGITAL_HUMAN_PERSONA_SEQUENCE.indexOf(selectedDigitalHumanPersonaKey);
+            const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % DIGITAL_HUMAN_PERSONA_SEQUENCE.length : 0;
+            return await switchDigitalHumanPersona(DIGITAL_HUMAN_PERSONA_SEQUENCE[nextIndex], intent.label || context.source || 'manual');
         }
-        case 'switch_model':
-            return await switchLive2DModel(intent.modelKey, intent.label || context.source || 'manual');
+        case 'switch_persona':
+            return await switchDigitalHumanPersona(intent.personaKey, intent.label || context.source || 'manual');
         case 'expression':
-            setLive2DIntentStatus(`意图：${intent.label || intent.expression}`);
-            return await triggerLive2DExpression(intent.expression);
+            setDigitalHumanIntentStatus(`意图：${intent.label || intent.expression}`);
+            applyDigitalHumanExpression(intent.expression);
+            if (intent.motion) await triggerDigitalHumanMotion(intent.motion);
+            return true;
         case 'motion':
-            setLive2DIntentStatus(`意图：${intent.label || intent.motion}`);
-            return await triggerLive2DMotion(intent.motion);
+            setDigitalHumanIntentStatus(`意图：${intent.label || intent.motion}`);
+            return await triggerDigitalHumanMotion(intent.motion);
         default:
             return false;
     }
@@ -1151,7 +1027,7 @@ function setFaceTrackingEnabled(enabled) {
             ? (faceTrackingRuntime.running ? 'OpenCV 眼部追踪模式运行中。' : 'OpenCV 眼部追踪模式已启用，等待摄像头启动。')
             : 'OpenCV 眼部追踪模式已关闭。'
     );
-    if (live2dModel) applyLive2DState(live2dModel);
+    refreshAvatarRendererState();
 }
 
 function setFaceTrackingMirror(enabled) {
@@ -1392,7 +1268,7 @@ function updateFaceTrackingAvatarPose(faceRect, analysis, frameWidth, frameHeigh
     setFaceTrackingStatus(
         `${avatarState.faceTracking.calibrated ? '已校准' : '未校准'}｜追踪中｜眼部锚点 ${rawCenterX.toFixed(0)},${rawCenterY.toFixed(0)}｜偏航 ${faceTrackingRuntime.currentPose.head_yaw.toFixed(2)}｜俯仰 ${faceTrackingRuntime.currentPose.head_pitch.toFixed(2)}｜眨眼 ${faceTrackingRuntime.currentSignals.blink.toFixed(2)}｜张嘴 ${faceTrackingRuntime.currentSignals.mouth_open.toFixed(2)}｜微笑 ${faceTrackingRuntime.currentSignals.smile.toFixed(2)}`
     );
-    if (live2dModel) applyLive2DState(live2dModel);
+    refreshAvatarRendererState();
 }
 
 function handleFaceTrackingLost() {
@@ -1562,7 +1438,7 @@ function processFaceTrackingFrame() {
         } else {
             drawFaceTrackingOverlay(null, frameWidth, frameHeight);
             handleFaceTrackingLost();
-            if (live2dModel) applyLive2DState(live2dModel);
+            refreshAvatarRendererState();
         }
     } catch (err) {
         console.warn('OpenCV face tracking frame failed:', err);
@@ -1886,7 +1762,7 @@ function stopFaceTrackingCamera() {
     updateFaceTrackingUi();
     setFaceTrackingStatus('OpenCV 眼部追踪摄像头已停止。');
     drawFaceTrackingOverlay(null, faceTrackingRuntime.analysisCanvas?.width || 1, faceTrackingRuntime.analysisCanvas?.height || 1);
-    if (live2dModel) applyLive2DState(live2dModel);
+    refreshAvatarRendererState();
 }
 
 function calibrateFaceTracking() {
@@ -1912,7 +1788,7 @@ function calibrateFaceTracking() {
     persistFaceTrackingPreferences();
     updateFaceTrackingUi();
     setFaceTrackingStatus('面部追踪已校准。请尽量正对摄像头。');
-    if (live2dModel) applyLive2DState(live2dModel);
+    refreshAvatarRendererState();
     return true;
 }
 
@@ -1987,32 +1863,12 @@ async function handleFaceTrackingControlMessage(message = {}) {
     }
 }
 
-async function fitLive2DModel(model, app, stage, rect) {
-    const width = Math.max(1, Math.floor(rect.width));
-    const height = Math.max(1, Math.floor(rect.height));
-    app.renderer.resize(width, height);
-
-    const bounds = model.getLocalBounds();
-    const naturalWidth = Math.max(1, bounds.width || model.width || 1);
-    const naturalHeight = Math.max(1, bounds.height || model.height || 1);
-    const fitScale = Math.min(width / naturalWidth, height / naturalHeight) * 0.92;
-    const finalScale = Number.isFinite(fitScale) && fitScale > 0 ? fitScale : 1;
-
-    model.anchor.set(0.5, 0.98);
-    model.position.set(width * 0.5, height * 0.985);
-    model.scale.set(finalScale);
-    model.skew.set(0, 0);
-
-    if (model.parent !== stage) {
-        stage.addChild(model);
-    }
-}
-
 function startWaveformLoop() {
     if (waveformLoopStarted) return;
     waveformLoopStarted = true;
 
     const frame = () => {
+        refreshAvatarRendererState();
         drawWaveform();
         requestAnimationFrame(frame);
     };
@@ -2318,97 +2174,25 @@ async function initWebGPU() {
     requestAnimationFrame(frame);
 }
 
-async function initLive2DAvatar(modelKey = selectedLive2DModelKey) {
-    const canvas = document.getElementById('webgpu-canvas');
-    const avatarStage = document.getElementById('avatar-stage');
-    if (!canvas || !avatarStage) return;
+async function initOnline3DAvatar() {
+    persistDigitalHumanPersonaKey(selectedDigitalHumanPersonaKey);
+    refreshAvatarRendererState();
 
-    const activeKey = persistLive2DModelKey(modelKey);
-    const spec = getLive2DModelSpec(activeKey);
-
-    await waitForCanvasReady(canvas);
-    await ensureLive2DDependencies();
-
-    const manifest = await loadLive2DManifest(activeKey);
-    teardownLive2DAvatar();
-
-    const rect = avatarStage.getBoundingClientRect();
-    const width = Math.max(1, Math.floor(rect.width));
-    const height = Math.max(1, Math.floor(rect.height));
-    const dpr = window.devicePixelRatio || 1;
-
-    const model = await PIXI.live2d.Live2DModel.from(spec.url, {
-        autoInteract: true,
-    });
-    const app = new PIXI.Application({
-        view: canvas,
-        width,
-        height,
-        backgroundAlpha: 0,
-        antialias: true,
-        autoDensity: true,
-        resolution: dpr,
-        powerPreference: 'high-performance',
-    });
-    live2dApp = app;
-    app.stage.sortableChildren = false;
-    model.autoUpdate = true;
-    model.interactive = true;
-    model.buttonMode = false;
-
-    live2dModel = model;
-    app.stage.addChild(model);
-    live2dManifestCache.set(activeKey, manifest);
-
-    const resize = () => {
-        if (!live2dApp || !live2dModel) return;
-        const latestRect = avatarStage.getBoundingClientRect();
-        void fitLive2DModel(live2dModel, live2dApp, app.stage, latestRect);
-    };
-
-    live2dResizeHandler = resize;
-    resize();
-    window.addEventListener('resize', live2dResizeHandler);
-    app.ticker.add(() => {
-        if (live2dModel) applyLive2DState(live2dModel);
-    });
-
-    live2dHitHandler = async (hitAreas) => {
-        if (!Array.isArray(hitAreas) || !hitAreas.length) return;
-        if (isLive2DInteractionLocked()) return;
-
-        const area = String(hitAreas[0] || '').toLowerCase();
-        const intent = area === 'head'
-            ? { kind: 'expression', expression: 'surprised', motion: 'flick_head', label: '点击头部' }
-            : { kind: 'expression', expression: 'happy', motion: 'tap_body', label: '点击身体' };
-        setLive2DIntentStatus(`意图：${spec.label}｜${intent.label}`);
-        await triggerAvatarIntent(intent, { source: 'click' });
-    };
-    if (typeof model.on === 'function') {
-        model.on('hit', live2dHitHandler);
+    const modelViewer = document.getElementById('avatar-model-viewer');
+    if (!modelViewer) {
+        throw new Error('3D model viewer element not found.');
     }
 
-    setLive2DIntentStatus(`模型：${spec.label}｜可点击头部/身体触发表情`);
-    void live2dModel.motion('idle').catch(() => {
-        // Some models may not expose the same motion group names.
+    modelViewer.addEventListener('load', () => {
+        const spec = getDigitalHumanPersonaSpec(avatarState.persona);
+        setDigitalHumanIntentStatus(`形象：${spec.label}｜在线 3D 模型已加载`);
     });
-
-    applyLive2DState(live2dModel);
 }
 
 async function initFallbackAvatar() {
     let canvas = document.getElementById('webgpu-canvas');
     if (!canvas) return;
 
-    if (live2dApp) {
-        try {
-            live2dApp.destroy(true, { children: true, texture: true, baseTexture: true });
-        } catch {
-            // ignore
-        }
-        live2dApp = null;
-        live2dModel = null;
-    }
 
     let ctx = canvas.getContext('2d');
     if (!ctx) {
@@ -2455,6 +2239,7 @@ async function initFallbackAvatar() {
         const renderedState = getBlendedAvatarState();
         const expression = renderedState.expression || {};
         const posture = renderedState.posture || {};
+        const persona = getDigitalHumanPersonaSpec(avatarState.persona);
 
         const cx = w * 0.5;
         const cy = h * 0.5;
@@ -2511,9 +2296,9 @@ async function initFallbackAvatar() {
 
         // jacket
         const jacket = ctx.createLinearGradient(0, -h * 0.02, 0, h * 0.34);
-        jacket.addColorStop(0, '#2e3b59');
-        jacket.addColorStop(0.52, '#1e2638');
-        jacket.addColorStop(1, '#141925');
+        jacket.addColorStop(0, persona.jacket[0]);
+        jacket.addColorStop(0.52, persona.jacket[1]);
+        jacket.addColorStop(1, persona.jacket[2]);
         ctx.fillStyle = jacket;
         ctx.beginPath();
         ctx.moveTo(-w * 0.34, h * 0.25);
@@ -2596,9 +2381,9 @@ async function initFallbackAvatar() {
 
         // hair back / top
         const hairGrad = ctx.createLinearGradient(0, -h * 0.18, 0, h * 0.05);
-        hairGrad.addColorStop(0, '#1b120f');
-        hairGrad.addColorStop(0.45, '#231812');
-        hairGrad.addColorStop(1, '#0d0908');
+        hairGrad.addColorStop(0, persona.hair[0]);
+        hairGrad.addColorStop(0.45, persona.hair[1]);
+        hairGrad.addColorStop(1, persona.hair[2]);
         ctx.fillStyle = hairGrad;
 
         // back hair silhouette
@@ -2652,7 +2437,7 @@ async function initFallbackAvatar() {
         ctx.fill();
 
         // irises
-        ctx.fillStyle = '#2d3d58';
+        ctx.fillStyle = persona.iris;
         ctx.beginPath();
         ctx.ellipse(-eyeOffset, eyeY + h * 0.002, eyeW * 0.74, eyeH * 0.78, 0, 0, Math.PI * 2);
         ctx.ellipse(eyeOffset, eyeY + h * 0.002, eyeW * 0.74, eyeH * 0.78, 0, 0, Math.PI * 2);
@@ -2751,21 +2536,9 @@ async function initFallbackAvatar() {
 
 async function initAvatarRenderer() {
     try {
-        await initLive2DAvatar();
-        return;
+        await initOnline3DAvatar();
     } catch (err) {
-        console.warn('Live2D avatar renderer failed, falling back to WebGPU/2D:', err);
-    }
-
-    try {
-        const useWebGPU = localStorage.getItem('qdh.enableWebGPUAvatar') === 'true';
-        if (useWebGPU) {
-            await initWebGPU();
-            return;
-        }
-        await initFallbackAvatar();
-    } catch (err) {
-        console.warn('WebGPU avatar renderer failed, falling back to 2D:', err);
+        console.warn('Online 3D avatar renderer failed, falling back to local 2D renderer:', err);
         await initFallbackAvatar();
     }
 }
@@ -2837,12 +2610,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const mapSearchBtn = document.getElementById('map-search-btn');
     const applyMapContextBtn = document.getElementById('apply-map-context-btn');
     const clearMapBtn = document.getElementById('clear-map-btn');
-    const live2dCycleModelBtn = document.getElementById('live2d-cycle-model-btn');
-    const live2dHappyBtn = document.getElementById('live2d-happy-btn');
-    const live2dThinkingBtn = document.getElementById('live2d-thinking-btn');
-    const live2dSurprisedBtn = document.getElementById('live2d-surprised-btn');
-    const live2dSadBtn = document.getElementById('live2d-sad-btn');
-    const live2dAngryBtn = document.getElementById('live2d-angry-btn');
+    const digitalHumanCyclePersonaBtn = document.getElementById('digital-human-cycle-persona-btn');
+    const digitalHumanHappyBtn = document.getElementById('digital-human-happy-btn');
+    const digitalHumanThinkingBtn = document.getElementById('digital-human-thinking-btn');
+    const digitalHumanSurprisedBtn = document.getElementById('digital-human-surprised-btn');
+    const digitalHumanSadBtn = document.getElementById('digital-human-sad-btn');
+    const digitalHumanAngryBtn = document.getElementById('digital-human-angry-btn');
     const faceTrackingEnabledCheckbox = document.getElementById('face-tracking-enabled');
     const faceTrackingMirrorCheckbox = document.getElementById('face-tracking-mirror');
     const faceTrackingStartBtn = document.getElementById('face-tracking-start-btn');
@@ -3257,19 +3030,19 @@ document.addEventListener('DOMContentLoaded', () => {
         setMapStatus('地图已清空，恢复默认定位。');
     });
 
-    const bindLive2DAction = (button, intent) => {
+    const bindDigitalHumanAction = (button, intent) => {
         if (!button) return;
         button.addEventListener('click', () => {
             void triggerAvatarIntent(intent, { source: 'button' });
         });
     };
 
-    bindLive2DAction(live2dCycleModelBtn, { kind: 'switch_model_cycle', label: '切换模型' });
-    bindLive2DAction(live2dHappyBtn, { kind: 'expression', expression: 'happy', motion: 'tap_body', label: '开心' });
-    bindLive2DAction(live2dThinkingBtn, { kind: 'expression', expression: 'thinking', motion: 'idle', label: '思考' });
-    bindLive2DAction(live2dSurprisedBtn, { kind: 'expression', expression: 'surprised', motion: 'flick_head', label: '惊讶' });
-    bindLive2DAction(live2dSadBtn, { kind: 'expression', expression: 'sad', motion: 'pinch_in', label: '难过' });
-    bindLive2DAction(live2dAngryBtn, { kind: 'expression', expression: 'angry', motion: 'shake', label: '生气' });
+    bindDigitalHumanAction(digitalHumanCyclePersonaBtn, { kind: 'switch_persona_cycle', label: '切换形象' });
+    bindDigitalHumanAction(digitalHumanHappyBtn, { kind: 'expression', expression: 'happy', motion: 'tap_body', label: '开心' });
+    bindDigitalHumanAction(digitalHumanThinkingBtn, { kind: 'expression', expression: 'thinking', motion: 'idle', label: '思考' });
+    bindDigitalHumanAction(digitalHumanSurprisedBtn, { kind: 'expression', expression: 'surprised', motion: 'flick_head', label: '惊讶' });
+    bindDigitalHumanAction(digitalHumanSadBtn, { kind: 'expression', expression: 'sad', motion: 'pinch_in', label: '难过' });
+    bindDigitalHumanAction(digitalHumanAngryBtn, { kind: 'expression', expression: 'angry', motion: 'shake', label: '生气' });
 
     if (faceTrackingEnabledCheckbox) {
         faceTrackingEnabledCheckbox.addEventListener('change', () => {

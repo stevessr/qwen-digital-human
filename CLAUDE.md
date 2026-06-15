@@ -44,7 +44,7 @@ cargo build --release
 
 ## Architecture
 
-The primary backend is a FastAPI app in `backend/src/qdh_backend/` with a static WebGPU frontend in `static/`. The first migration phase preserves the existing browser API contracts while moving LLM calls to external providers, defaulting to local Ollama.
+The primary backend is a FastAPI app in `backend/src/qdh_backend/` with a static frontend in `static/`. The frontend renders the digital human with existing online GLB 3D models through `<model-viewer>`, while preserving the existing browser API contracts and moving LLM calls to external providers, defaulting to local Ollama.
 
 - **`backend/src/qdh_backend/main.py`** — FastAPI app factory, route registration, static file mount
 - **`backend/src/qdh_backend/settings.py`** — environment settings and repo/static path resolution
@@ -80,7 +80,7 @@ The primary backend is a FastAPI app in `backend/src/qdh_backend/` with a static
 
 ### Key Design Decisions
 
-- Keep `static/` unchanged and serve it from the Python backend on the same origin.
+- Serve `static/` from the Python backend on the same origin; the default avatar path uses online GLB 3D models via `<model-viewer>` rather than legacy local avatar runtimes.
 - Preserve `qdh-binary-v2` (`application/octet-stream`, `X-Stream-Format: qdh-binary-v2`) because `static/main.js` decodes binary frames directly.
 - Keep the old `fast_mode` request field for compatibility, but provider selection now comes from environment variables.
 - Default LLM is local Ollama; `openai_compatible` supports external APIs with `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL`.

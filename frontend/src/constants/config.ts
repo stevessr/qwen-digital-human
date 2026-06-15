@@ -139,9 +139,9 @@ export const RUNTIME_RESOURCES: RuntimeResource[] = [
   },
   {
     key: 'digital-human-avatar',
-    title: '程序化数字人形象',
-    description: '前端使用 CSS/SVG/DOM 程序化渲染数字人头像、表情、眨眼、口型和头部姿态，不再依赖外部头像模型运行时。',
-    badge: '无模型运行时',
+    title: '在线 3D 数字人形象',
+    description: '前端通过已有在线 GLB 3D 模型渲染数字人，并叠加口型、表情状态、眨眼节奏和 OpenCV 头部姿态驱动。',
+    badge: '在线 3D 模型',
     actions: [],
   },
   {

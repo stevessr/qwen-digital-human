@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>地图数字人（Ollama LLM + 浏览器 ASR/TTS）</title>
+    <script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer/dist/model-viewer-module.min.js"></script>
     <style>
         body { margin: 0; display: flex; height: 100vh; font-family: sans-serif; background-color: #121212; color: #fff; overflow: hidden; }
         #left-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; background: #0a0a0a; position: relative; }
@@ -23,7 +24,10 @@
         }
         #avatar-stage.dragging { cursor: grabbing; }
         canvas { width: 100%; height: 100%; display: block; }
-        #avatar-stage canvas { cursor: inherit; }
+        #avatar-model-viewer { width: 100%; height: 100%; --poster-color: transparent; background: transparent; cursor: inherit; }
+        #avatar-model-frame { position: absolute; inset: 2% 5% 8%; transform-origin: 50% 70%; transition: transform 120ms ease-out; }
+        #avatar-aura { position: absolute; inset: 8% 12%; border-radius: 999px; background: radial-gradient(circle, rgba(91, 190, 255, 0.5), rgba(33, 77, 122, 0.18) 46%, transparent 70%); filter: blur(14px); opacity: 0.45; pointer-events: none; }
+        #avatar-ring { position: absolute; left: 50%; bottom: 9%; width: 64%; height: 16%; border: 1px solid rgba(106, 214, 255, 0.36); border-radius: 50%; transform: translateX(-50%) rotateX(68deg); box-shadow: 0 0 24px rgba(70, 180, 255, 0.25); pointer-events: none; }
         #waveform-overlay { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); width: 60%; height: 60px; opacity: 0.6; pointer-events: none; }
         #map-panel { flex: 1; min-height: 280px; display: flex; flex-direction: column; background: #0f1115; border-top: 1px solid #222; }
         .map-topbar { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; padding: 12px 14px; border-bottom: 1px solid #262626; background: linear-gradient(180deg, #171b24, #11151c); }
@@ -158,7 +162,27 @@
 <body>
     <div id="left-pane">
         <div id="avatar-stage">
-            <canvas id="webgpu-canvas"></canvas>
+            <div id="avatar-aura"></div>
+            <div id="avatar-ring"></div>
+            <div id="avatar-model-frame">
+                <model-viewer
+                    id="avatar-model-viewer"
+                    src="https://modelviewer.dev/shared-assets/models/NeilArmstrong.glb"
+                    alt="在线 3D 数字人模型"
+                    camera-controls
+                    auto-rotate
+                    autoplay
+                    touch-action="pan-y"
+                    interaction-prompt="none"
+                    environment-image="neutral"
+                    shadow-intensity="0.85"
+                    exposure="0.95"
+                    loading="eager"
+                    reveal="auto"
+                    camera-orbit="0deg 68deg 2.35m"
+                    field-of-view="26deg"
+                ></model-viewer>
+            </div>
             <canvas id="waveform-overlay"></canvas>
         </div>
         <section id="map-panel">
@@ -185,20 +209,20 @@
         <div id="model-manager" style="padding: 10px; border-bottom: 1px solid #333; font-size: 0.8em; display: flex; justify-content: space-between; align-items: center;">
             <div>
                 <strong>Models:</strong> <span id="model-list">Loading...</span>
-                <div style="margin-top: 4px; color: #9aa4b2;">LLM 推理：本地 Ollama 服务｜ASR/TTS：浏览器 Web Speech APIs｜Live2D 头像：Shizuku / Haru 01 / Haru 02（本地资源）｜OpenCV 眼部追踪已移至配置网页</div>
+                <div style="margin-top: 4px; color: #9aa4b2;">LLM 推理：本地 Ollama 服务｜ASR/TTS：浏览器 Web Speech APIs｜数字人形象：在线 GLB 3D 模型、口型与姿态驱动｜OpenCV 眼部追踪已移至配置网页</div>
             </div>
             <div style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end;">
                 <a href="/config.html" style="color: #007bff; text-decoration: none; border: 1px solid #007bff; padding: 2px 8px; border-radius: 4px;">配置网页</a>
                 <a href="/models.html" style="color: #007bff; text-decoration: none; border: 1px solid #007bff; padding: 2px 8px; border-radius: 4px;">管理控制台</a>
             </div>
         </div>
-        <div id="live2d-toolbar" style="padding: 8px 10px; border-bottom: 1px solid #333; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-            <button id="live2d-cycle-model-btn" style="width: auto; margin-bottom: 0;">切换模型</button>
-            <button id="live2d-happy-btn" style="width: auto; margin-bottom: 0;">开心</button>
-            <button id="live2d-thinking-btn" style="width: auto; margin-bottom: 0;">思考</button>
-            <button id="live2d-surprised-btn" style="width: auto; margin-bottom: 0;">惊讶</button>
-            <button id="live2d-sad-btn" style="width: auto; margin-bottom: 0;">难过</button>
-            <button id="live2d-angry-btn" style="width: auto; margin-bottom: 0;">生气</button>
+        <div id="digital-human-toolbar" style="padding: 8px 10px; border-bottom: 1px solid #333; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+            <button id="digital-human-cycle-persona-btn" style="width: auto; margin-bottom: 0;">切换形象</button>
+            <button id="digital-human-happy-btn" style="width: auto; margin-bottom: 0;">开心</button>
+            <button id="digital-human-thinking-btn" style="width: auto; margin-bottom: 0;">思考</button>
+            <button id="digital-human-surprised-btn" style="width: auto; margin-bottom: 0;">惊讶</button>
+            <button id="digital-human-sad-btn" style="width: auto; margin-bottom: 0;">难过</button>
+            <button id="digital-human-angry-btn" style="width: auto; margin-bottom: 0;">生气</button>
             <span id="intent-status" style="margin-left: auto; color: #9aa4b2;">意图：待机</span>
         </div>
         <div style="margin: 8px 0 0; padding: 10px 14px; border: 1px solid #2b3550; border-radius: 10px; background: #101723; color: #9ab3d4; font-size: 0.88rem;">

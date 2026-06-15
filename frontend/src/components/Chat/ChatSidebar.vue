@@ -97,7 +97,7 @@ const handleKeyPress = (e: KeyboardEvent) => {
       <div class="info-text">
         <strong>Models:</strong> Loading...
         <div class="info-hint">
-          数字人形象：程序化渲染，支持表情、口型、眼动与 OpenCV 姿态驱动。
+          数字人形象：在线 GLB 3D 模型渲染，支持口型、动作状态与 OpenCV 姿态驱动。
         </div>
       </div>
       <div class="info-links">
