@@ -47,11 +47,6 @@ const clearMap = () => {
   mapStore.clearMap()
 }
 
-const placeLatLng = computed<LatLngExpression>(() => [
-  Number(selectedPlace.value.lat),
-  Number(selectedPlace.value.lon),
-])
-
 const ensureMap = () => {
   if (map || !mapContainer.value) return
 
@@ -81,8 +76,15 @@ const updateMapView = () => {
     marker.setLatLng(latLng)
   }
 
+  const popup = document.createElement('div')
+  const title = document.createElement('strong')
+  title.textContent = place.display_name
+  const coordinate = document.createElement('div')
+  coordinate.textContent = `坐标：${lat.toFixed(6)}, ${lon.toFixed(6)}`
+  popup.append(title, coordinate)
+
   marker
-    .bindPopup(`<strong>${place.display_name}</strong><br>坐标：${lat.toFixed(6)}, ${lon.toFixed(6)}`)
+    .bindPopup(popup)
     .openPopup()
 
   const bounds = place.bounds
@@ -120,7 +122,7 @@ onBeforeUnmount(() => {
   map = null
 })
 
-watch(placeLatLng, updateMapView)
+watch(selectedPlace, updateMapView)
 </script>
 
 <template>
