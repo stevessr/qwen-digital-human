@@ -81,7 +81,7 @@ const pickChineseVoice = (voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice 
 const startSpeechKeepAlive = () => {
   const timer = window.setInterval(() => {
     const synth = window.speechSynthesis
-    if (synth.speaking && synth.paused) {
+    if (synth.speaking) {
       synth.resume()
     }
   }, 3500)

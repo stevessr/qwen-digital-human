@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, shallowRef, watch } from 'vue'
+import { computed, shallowRef, watch } from 'vue'
 import { message as AMessage } from 'ant-design-vue'
 import { useBrowserASR } from '@/composables/useBrowserASR'
 import { useStreamingChat } from '@/composables/useStreamingChat'
@@ -26,8 +26,8 @@ const {
 } = useBrowserASR()
 const { detectIntents } = useAvatarIntent()
 
-const inputText = ref('')
-const activeIntentLabel = ref('待机')
+const inputText = shallowRef('')
+const activeIntentLabel = shallowRef('待机')
 const asrBaseText = shallowRef('')
 const shouldSendAfterASRStop = shallowRef(false)
 const renderedMessages = computed(() => chatStore.messages.map(message => ({
