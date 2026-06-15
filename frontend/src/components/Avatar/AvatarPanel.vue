@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { onMounted, ref, shallowRef, useTemplateRef } from 'vue'
 import { useEventListener } from '@vueuse/core'
 import DigitalHumanAvatar from './DigitalHumanAvatar.vue'
 
 // Draggable position state
-const stage = ref<HTMLElement>()
-const isDragging = ref(false)
+const stage = useTemplateRef<HTMLElement>('stage')
+const isDragging = shallowRef(false)
 const position = ref({ left: 18, top: 18 })
 
 const STORAGE_KEY = 'qdh.avatarFloatPosition'
+const VIEWPORT_GAP = 8
 
 const loadPosition = () => {
   const stored = localStorage.getItem(STORAGE_KEY)
@@ -30,20 +31,15 @@ const savePosition = () => {
 }
 
 const clampPosition = (left: number, top: number) => {
-  const leftPane = stage.value?.parentElement
   const stageRect = stage.value?.getBoundingClientRect()
-  const bounds = leftPane?.getBoundingClientRect()
-
-  if (!bounds || !stageRect) {
-    return { left: Math.max(8, left), top: Math.max(8, top) }
-  }
-
-  const maxLeft = Math.max(8, bounds.width - stageRect.width - 8)
-  const maxTop = Math.max(8, bounds.height - stageRect.height - 8)
+  const stageWidth = stageRect?.width ?? 280
+  const stageHeight = stageRect?.height ?? 220
+  const maxLeft = Math.max(VIEWPORT_GAP, window.innerWidth - stageWidth - VIEWPORT_GAP)
+  const maxTop = Math.max(VIEWPORT_GAP, window.innerHeight - stageHeight - VIEWPORT_GAP)
 
   return {
-    left: Math.max(8, Math.min(maxLeft, left)),
-    top: Math.max(8, Math.min(maxTop, top)),
+    left: Math.max(VIEWPORT_GAP, Math.min(maxLeft, left)),
+    top: Math.max(VIEWPORT_GAP, Math.min(maxTop, top)),
   }
 }
 
@@ -92,29 +88,33 @@ useEventListener('resize', () => {
 </script>
 
 <template>
-  <div
-    ref="stage"
-    class="avatar-stage"
-    :class="{ dragging: isDragging }"
-    :style="{
-      left: `${position.left}px`,
-      top: `${position.top}px`,
-    }"
-    @pointerdown="handlePointerDown"
-  >
-    <DigitalHumanAvatar />
-  </div>
+  <Teleport to="body">
+    <div
+      ref="stage"
+      class="avatar-stage"
+      :class="{ dragging: isDragging }"
+      :style="{
+        left: `${position.left}px`,
+        top: `${position.top}px`,
+      }"
+      @pointerdown="handlePointerDown"
+    >
+      <DigitalHumanAvatar />
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
 .avatar-stage {
-  position: absolute;
-  z-index: 10;
+  position: fixed;
+  z-index: 2147483000;
   width: min(44vw, calc(100% - 36px), 560px);
   height: min(34vw, calc(100vh - 120px), 420px);
   min-width: 280px;
   min-height: 220px;
   background: transparent;
+  isolation: isolate;
+  pointer-events: auto;
   touch-action: none;
   user-select: none;
   cursor: grab;
