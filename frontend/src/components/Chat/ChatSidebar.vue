@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { message as AMessage } from 'ant-design-vue'
 import { useStreamingChat } from '@/composables/useStreamingChat'
 import { useTTS } from '@/composables/useTTS'
 import { useAvatarIntent } from '@/utils/intent'
 import { useAvatarStore } from '@/stores/avatar'
 import { useChatStore } from '@/stores/chat'
+import { renderMarkdown } from '@/utils/markdown'
 import type { AvatarIntent, DigitalHumanExpressionName } from '@/types/avatar'
 
 const chatStore = useChatStore()
@@ -16,6 +17,10 @@ const { detectIntents } = useAvatarIntent()
 
 const inputText = ref('')
 const activeIntentLabel = ref('待机')
+const renderedMessages = computed(() => chatStore.messages.map(message => ({
+  ...message,
+  html: renderMarkdown(message.content),
+})))
 
 const applyAvatarIntent = (intent: AvatarIntent) => {
   if (intent.kind === 'switch_persona_cycle') {
@@ -114,13 +119,13 @@ const handleKeyPress = (e: KeyboardEvent) => {
 
     <div class="chat-history">
       <div
-        v-for="msg in chatStore.messages"
+        v-for="msg in renderedMessages"
         :key="msg.id"
         class="message"
         :class="msg.role === 'user' ? 'user-message' : 'bot-message'"
       >
         <strong>{{ msg.role === 'user' ? 'You' : '地图数字人' }}:</strong>
-        {{ msg.content }}
+        <div class="markdown-body" v-html="msg.html" />
       </div>
     </div>
 
@@ -208,12 +213,97 @@ const handleKeyPress = (e: KeyboardEvent) => {
   border-radius: 8px;
 }
 
+.message > strong {
+  display: block;
+  margin-bottom: 6px;
+}
+
 .user-message {
   background: #2b5278;
 }
 
 .bot-message {
   background: #2c2c2c;
+}
+
+.message :deep(.markdown-body) {
+  overflow-wrap: anywhere;
+}
+
+.message :deep(.markdown-body > :first-child) {
+  margin-top: 0;
+}
+
+.message :deep(.markdown-body > :last-child) {
+  margin-bottom: 0;
+}
+
+.message :deep(.markdown-body p),
+.message :deep(.markdown-body ul),
+.message :deep(.markdown-body ol),
+.message :deep(.markdown-body blockquote),
+.message :deep(.markdown-body pre) {
+  margin: 0 0 0.75em;
+}
+
+.message :deep(.markdown-body h1),
+.message :deep(.markdown-body h2),
+.message :deep(.markdown-body h3) {
+  margin: 0.45em 0 0.35em;
+  color: #f3f7ff;
+  line-height: 1.25;
+}
+
+.message :deep(.markdown-body h1) {
+  font-size: 1.22rem;
+}
+
+.message :deep(.markdown-body h2) {
+  font-size: 1.1rem;
+}
+
+.message :deep(.markdown-body h3) {
+  font-size: 1rem;
+}
+
+.message :deep(.markdown-body ul),
+.message :deep(.markdown-body ol) {
+  padding-left: 1.35em;
+}
+
+.message :deep(.markdown-body li + li) {
+  margin-top: 0.25em;
+}
+
+.message :deep(.markdown-body code) {
+  padding: 0.12em 0.32em;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.28);
+  color: #ffd98a;
+  font-size: 0.92em;
+}
+
+.message :deep(.markdown-body pre) {
+  overflow-x: auto;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.message :deep(.markdown-body pre code) {
+  padding: 0;
+  background: transparent;
+  color: #e8eef8;
+}
+
+.message :deep(.markdown-body a) {
+  color: #8bc7ff;
+}
+
+.message :deep(.markdown-body blockquote) {
+  padding-left: 0.9em;
+  border-left: 3px solid rgba(139, 199, 255, 0.45);
+  color: #c6d3e4;
 }
 
 .stream-text {

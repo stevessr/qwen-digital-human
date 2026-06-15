@@ -38,6 +38,34 @@ const safeBounds = (place: MapPlace): MapBounds => {
   }
 }
 
+const buildManualBounds = (lat: number, lon: number): MapBounds => ({
+  south: lat - 0.006,
+  north: lat + 0.006,
+  west: lon - 0.008,
+  east: lon + 0.008,
+})
+
+const buildManualPlace = (lat: number, lon: number): MapPlace => {
+  const formattedLat = formatCoordinate(lat)
+  const formattedLon = formatCoordinate(lon)
+
+  return {
+    display_name: `手动标点（${formattedLat}, ${formattedLon}）`,
+    lat,
+    lon,
+    bounds: buildManualBounds(lat, lon),
+    category: 'manual',
+    kind: 'manual-pin',
+    importance: 1,
+    summary: [
+      `手动标点（${formattedLat}, ${formattedLon}）`,
+      `坐标：${formattedLat}, ${formattedLon}`,
+      '分类：manual',
+      '类型：manual-pin',
+    ].join('\n'),
+  }
+}
+
 export const buildMapFrameUrl = (place: MapPlace): string => {
   if (place.map_url) return place.map_url
 
@@ -143,6 +171,19 @@ export const useMapStore = defineStore('map', () => {
     status.value = '地图已清空，恢复默认定位。'
   }
 
+  const setManualLocation = (lat: number, lon: number) => {
+    const safeLat = toFiniteNumber(lat, DEFAULT_MAP_PLACE.lat)
+    const safeLon = toFiniteNumber(lon, DEFAULT_MAP_PLACE.lon)
+    const manualPlace = buildManualPlace(safeLat, safeLon)
+
+    currentLocation.value = manualPlace
+    searchResults.value = [
+      manualPlace,
+      ...searchResults.value.filter(place => !isSelectedMapPlace(place)),
+    ].slice(0, 8)
+    status.value = '已手动标点。点击“写入上下文”后，后端回复会围绕该坐标。'
+  }
+
   return {
     currentLocation,
     searchResults,
@@ -160,5 +201,6 @@ export const useMapStore = defineStore('map', () => {
     searchPlaces,
     clearResults,
     clearMap,
+    setManualLocation,
   }
 })

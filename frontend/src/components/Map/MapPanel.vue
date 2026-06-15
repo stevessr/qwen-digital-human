@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, useTemplateRef, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, shallowRef, useTemplateRef, watch } from 'vue'
 import { message as AMessage } from 'ant-design-vue'
-import L, { type LatLngExpression, type Map as LeafletMap, type Marker } from 'leaflet'
+import L, { type LatLngExpression, type LeafletMouseEvent, type Map as LeafletMap, type Marker } from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png'
 import markerIcon from 'leaflet/dist/images/marker-icon.png'
@@ -16,6 +16,7 @@ import {
 const chatStore = useChatStore()
 const mapStore = useMapStore()
 const mapContainer = useTemplateRef<HTMLDivElement>('mapContainer')
+const isManualPinMode = shallowRef(false)
 
 let map: LeafletMap | null = null
 let marker: Marker | null = null
@@ -45,6 +46,20 @@ const clearMap = () => {
   chatStore.settings.context = stripMapContext(chatStore.settings.context)
   chatStore.saveSettings()
   mapStore.clearMap()
+  AMessage.success('地图已清空，地图上下文已移除。')
+}
+
+const clearAllContext = () => {
+  chatStore.settings.context = ''
+  chatStore.saveSettings()
+  AMessage.success('上下文已清空。')
+}
+
+const toggleManualPinMode = () => {
+  isManualPinMode.value = !isManualPinMode.value
+  mapStore.status = isManualPinMode.value
+    ? '手动标点已开启：请在地图上点击一个位置。'
+    : '手动标点已关闭。'
 }
 
 const ensureMap = () => {
@@ -59,6 +74,13 @@ const ensureMap = () => {
     maxZoom: 19,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
   }).addTo(map)
+
+  map.on('click', (event: LeafletMouseEvent) => {
+    if (!isManualPinMode.value) return
+
+    mapStore.setManualLocation(event.latlng.lat, event.latlng.lng)
+    isManualPinMode.value = false
+  })
 }
 
 const updateMapView = () => {
@@ -133,8 +155,12 @@ watch(selectedPlace, updateMapView)
         <div class="map-status">{{ mapStore.status }}</div>
       </div>
       <div class="map-actions">
+        <AButton :type="isManualPinMode ? 'primary' : 'default'" @click="toggleManualPinMode">
+          {{ isManualPinMode ? '点击地图标点中' : '手动标点' }}
+        </AButton>
         <AButton type="primary" @click="writeMapContext">写入上下文</AButton>
         <AButton danger @click="clearMap">清空地图</AButton>
+        <AButton danger ghost @click="clearAllContext">清空上下文</AButton>
       </div>
     </div>
 
@@ -173,6 +199,7 @@ watch(selectedPlace, updateMapView)
         <strong>{{ selectedPlace.display_name }}</strong>
         <span>坐标：{{ coordinateText }}</span>
         <span>类型：{{ selectedPlace.kind || 'unknown' }} · 分类：{{ selectedPlace.category || 'unknown' }}</span>
+        <span v-if="isManualPinMode">请直接点击地图选择标点</span>
         <a :href="mapStore.mapFrameUrl" target="_blank" rel="noreferrer">打开外部地图</a>
       </div>
     </div>
