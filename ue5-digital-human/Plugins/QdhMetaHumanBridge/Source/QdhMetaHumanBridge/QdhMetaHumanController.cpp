@@ -21,23 +21,29 @@ void AQdhMetaHumanController::BeginPlay()
     WsClient = MakeUnique<FQdhWebSocketClient>();
     AudioPlayer = MakeUnique<FQdhAudioPlayer>();
     LipSyncDriver = MakeUnique<FQdhLipSyncDriver>();
+    AnimationDriver = MakeUnique<FQdhAnimationDriver>();
 
     // Wire up WebSocket events
     WsClient->OnJsonMessage().AddRaw(this, &AQdhMetaHumanController::OnWsJsonMessage);
     WsClient->OnBinaryMessage().AddRaw(this, &AQdhMetaHumanController::OnWsBinaryMessage);
     WsClient->OnConnectionState().AddRaw(this, &AQdhMetaHumanController::OnWsConnectionState);
 
-    // Wire up lip-sync driver to emit expression updates to Blueprint
+    // Wire up lip-sync driver to emit expression updates
     LipSyncDriver->OnExpressionUpdated().AddLambda([this](const FExpressionFrame& Frame) {
         bAudioPlaying = LipSyncDriver->IsPlaying();
-        OnExpressionUpdated(
-            Frame.Emotion,
-            Frame.MouthOpen,
-            Frame.JawOpen,
-            Frame.LipRound,
-            Frame.Smile,
-            Frame.Blink
-        );
+    });
+
+    // Wire up animation driver to emit expression updates
+    AnimationDriver->OnAnimationExpression().AddLambda([this](const FExpressionFrame& Frame) {
+        bAnimationPlaying = AnimationDriver->IsPlaying();
+        CurrentAnimationName = AnimationDriver->GetCurrentAnimationName();
+    });
+
+    // Wire up animation completion
+    AnimationDriver->OnAnimationFinished().AddLambda([this](const FString& AnimationName) {
+        bAnimationPlaying = false;
+        CurrentAnimationName = TEXT("");
+        OnAnimationFinished(AnimationName);
     });
 
     // Initialize audio player
@@ -67,6 +73,21 @@ void AQdhMetaHumanController::Tick(float DeltaTime)
     {
         LipSyncDriver->Tick(DeltaTime);
     }
+    if (AnimationDriver)
+    {
+        AnimationDriver->Tick(DeltaTime);
+    }
+
+    // Blend lip-sync and animation expressions, then emit to Blueprint
+    FExpressionFrame Blended = BlendExpressionOutput(DeltaTime);
+    OnExpressionUpdated(
+        Blended.Emotion,
+        Blended.MouthOpen,
+        Blended.JawOpen,
+        Blended.LipRound,
+        Blended.Smile,
+        Blended.Blink
+    );
 }
 
 void AQdhMetaHumanController::ConnectToBackend()
@@ -158,6 +179,14 @@ void AQdhMetaHumanController::OnWsJsonMessage(const FString& Json)
     {
         // Respond with pong
         if (WsClient) WsClient->SendJson(TEXT("{\"type\":\"pong\"}"));
+    }
+    else if (MessageType == TEXT("animation"))
+    {
+        HandleAnimationMessage(JsonObject);
+    }
+    else if (MessageType == TEXT("motion"))
+    {
+        HandleMotionMessage(JsonObject);
     }
     else if (MessageType == TEXT("handshake"))
     {
@@ -328,4 +357,110 @@ void AQdhMetaHumanController::HandleTextMessage(const TSharedPtr<FJsonObject>& J
     // Fire events for blueprints
     OnTextReceived(Text, /*bFinal=*/true);
     OnTranscriptReceived(Text);
+}
+
+void AQdhMetaHumanController::HandleAnimationMessage(const TSharedPtr<FJsonObject>& Json)
+{
+    const TSharedPtr<FJsonObject>* DataPtr = nullptr;
+    if (!Json->TryGetObjectField(TEXT("data"), DataPtr)) return;
+
+    const TSharedPtr<FJsonObject>& Data = *DataPtr;
+
+    FAnimationPreset Preset;
+    Preset.Name = Data->GetStringField(TEXT("name"));
+    Preset.Label = Data->GetStringField(TEXT("label"));
+    Preset.DurationMs = Data->GetNumberField(TEXT("duration_ms"));
+
+    // Parse keyframes array
+    const TArray<TSharedPtr<FJsonValue>>* KeyframesArray = nullptr;
+    if (Data->TryGetArrayField(TEXT("keyframes"), KeyframesArray))
+    {
+        for (const auto& Val : *KeyframesArray)
+        {
+            const TSharedPtr<FJsonObject>* ItemPtr = nullptr;
+            if (!Val->TryGetObject(ItemPtr)) continue;
+
+            const TSharedPtr<FJsonObject>& Item = *ItemPtr;
+            FAnimationKeyframe Kf;
+            Kf.TimeMs = Item->GetNumberField(TEXT("time_ms"));
+            Kf.DurationMs = Item->GetNumberField(TEXT("duration_ms"));
+            Kf.MouthOpen = Item->GetNumberField(TEXT("mouth_open"));
+            Kf.JawOpen = Item->GetNumberField(TEXT("jaw_open"));
+            Kf.LipRound = Item->GetNumberField(TEXT("lip_round"));
+            Kf.Smile = Item->GetNumberField(TEXT("smile"));
+            Kf.HeadYaw = Item->GetNumberField(TEXT("head_yaw"));
+            Kf.HeadPitch = Item->GetNumberField(TEXT("head_pitch"));
+            Kf.HeadRoll = Item->GetNumberField(TEXT("head_roll"));
+            Kf.Blink = Item->GetNumberField(TEXT("blink"));
+            Kf.Emotion = Item->GetStringField(TEXT("emotion"));
+            Preset.Keyframes.Add(Kf);
+        }
+    }
+
+    if (AnimationDriver)
+    {
+        AnimationDriver->PlayAnimation(Preset);
+        OnAnimationStarted(Preset.Name, Preset.Label);
+    }
+}
+
+void AQdhMetaHumanController::HandleMotionMessage(const TSharedPtr<FJsonObject>& Json)
+{
+    const TSharedPtr<FJsonObject>* DataPtr = nullptr;
+    if (!Json->TryGetObjectField(TEXT("data"), DataPtr)) return;
+
+    const TSharedPtr<FJsonObject>& Data = *DataPtr;
+    FString MotionName = Data->GetStringField(TEXT("motion"));
+    float Intensity = 1.0f;
+    Data->TryGetNumberField(TEXT("intensity"), Intensity);
+
+    // Fire event for blueprint to handle
+    OnMotionTriggered(MotionName, Intensity);
+}
+
+FExpressionFrame AQdhMetaHumanController::BlendExpressionOutput(float DeltaTime)
+{
+    // Start from neutral
+    FExpressionFrame Result;
+
+    // Layer 1: animation driver output (emotional expressions, gestures)
+    if (AnimationDriver && AnimationDriver->IsPlaying())
+    {
+        const FExpressionFrame& AnimExpr = AnimationDriver->GetCurrentExpression();
+        Result.MouthOpen = FMath::Max(Result.MouthOpen, AnimExpr.MouthOpen);
+        Result.JawOpen = FMath::Max(Result.JawOpen, AnimExpr.JawOpen);
+        Result.LipRound = FMath::Max(Result.LipRound, AnimExpr.LipRound);
+        Result.Smile = AnimExpr.Smile;  // smile can be negative (frown)
+        Result.HeadYaw += AnimExpr.HeadYaw;
+        Result.HeadPitch += AnimExpr.HeadPitch;
+        Result.HeadRoll += AnimExpr.HeadRoll;
+        Result.Blink = FMath::Max(Result.Blink, AnimExpr.Blink);
+        Result.Emotion = AnimExpr.Emotion;
+    }
+
+    // Layer 2: lip-sync driver output (viseme-driven speech animation)
+    if (LipSyncDriver && LipSyncDriver->IsPlaying())
+    {
+        const FExpressionFrame& LipExpr = LipSyncDriver->GetCurrentExpression();
+        // Mouth/jaw from lip-sync takes priority during speech
+        Result.MouthOpen = FMath::Max(Result.MouthOpen, LipExpr.MouthOpen);
+        Result.JawOpen = FMath::Max(Result.JawOpen, LipExpr.JawOpen);
+        Result.LipRound = FMath::Max(Result.LipRound, LipExpr.LipRound);
+        // Blend smile gently — lip-sync can override slightly
+        Result.Smile = FMath::Lerp(Result.Smile, LipExpr.Smile, 0.3f);
+        Result.Blink = FMath::Max(Result.Blink, LipExpr.Blink);
+        // If lip-sync is active, keep the emotion from animation
+    }
+
+    // Clamp all values to valid ranges
+    Result.MouthOpen = FMath::Clamp(Result.MouthOpen, 0.0f, 1.0f);
+    Result.JawOpen = FMath::Clamp(Result.JawOpen, 0.0f, 1.0f);
+    Result.LipRound = FMath::Clamp(Result.LipRound, 0.0f, 1.0f);
+    Result.Smile = FMath::Clamp(Result.Smile, -1.0f, 1.0f);
+    Result.HeadYaw = FMath::Clamp(Result.HeadYaw, -1.0f, 1.0f);
+    Result.HeadPitch = FMath::Clamp(Result.HeadPitch, -1.0f, 1.0f);
+    Result.HeadRoll = FMath::Clamp(Result.HeadRoll, -1.0f, 1.0f);
+    Result.Blink = FMath::Clamp(Result.Blink, 0.0f, 1.0f);
+
+    return Result;
 }

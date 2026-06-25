@@ -18,6 +18,12 @@ from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from ..intent import (
+    AnimationPreset,
+    detect_intent,
+    get_animation_duration,
+    get_animation_for_intent,
+)
 from ..viseme_extractor import VisemeFrame
 
 logger = logging.getLogger(__name__)
@@ -198,6 +204,40 @@ class Ue5ConnectionManager:
                     "head_pitch": max(-1.0, min(1.0, head_pitch)),
                     "blink": max(0.0, min(1.0, blink)),
                     "emotion": emotion,
+                },
+            }
+        )
+
+    async def send_animation(self, preset: AnimationPreset) -> int:
+        """Send an animation preset (timed expression sequence) to UE5.
+
+        UE5 will play through the keyframes sequentially on its timeline.
+        """
+        duration = get_animation_duration(preset)
+        keyframes_data = [
+            {
+                "time_ms": kf.time_ms,
+                "duration_ms": kf.duration_ms,
+                "mouth_open": max(0.0, min(1.0, kf.mouth_open)),
+                "jaw_open": max(0.0, min(1.0, kf.jaw_open)),
+                "lip_round": max(0.0, min(1.0, kf.lip_round)),
+                "smile": max(-1.0, min(1.0, kf.smile)),
+                "head_yaw": max(-1.0, min(1.0, kf.head_yaw)),
+                "head_pitch": max(-1.0, min(1.0, kf.head_pitch)),
+                "head_roll": max(-1.0, min(1.0, kf.head_roll)),
+                "blink": max(0.0, min(1.0, kf.blink)),
+                "emotion": kf.emotion,
+            }
+            for kf in preset.keyframes
+        ]
+        return await self.send_json(
+            {
+                "type": "animation",
+                "data": {
+                    "name": preset.name,
+                    "label": preset.label,
+                    "duration_ms": duration,
+                    "keyframes": keyframes_data,
                 },
             }
         )
@@ -432,17 +472,25 @@ async def send_reply_to_ue5(
 
     This is the main entry point called from chat/pipeline handlers.
     The reply text is sent as a final transcript for subtitle display.
+    An animation preset is chosen automatically based on reply sentiment.
     """
     if not manager.is_connected:
         logger.debug("No UE5 client connected — skipping send_reply_to_ue5")
         return
 
-    # 0. Send final cleaned text transcript for subtitles
+    # 0. Detect semantic intent from the reply text
+    intent_name = detect_intent(reply)
+    intent_preset = get_animation_for_intent(intent_name)
+    if intent_preset:
+        logger.debug("Sending animation '%s' to UE5 (detected from reply)", intent_preset.name)
+        await manager.send_animation(intent_preset)
+    else:
+        # Fallback: send neutral expression
+        await manager.send_expression(mouth_open=0.0, smile=0.1, blink=0.0)
+
+    # 1. Send final cleaned text transcript for subtitles
     if reply.strip():
         await manager.send_text(reply)
-
-    # 1. Send initial expression (neutral, ready)
-    await manager.send_expression(mouth_open=0.0, smile=0.1, blink=0.0)
 
     # 2. Send viseme sequence for timeline-driven lip sync
     if viseme_frames:

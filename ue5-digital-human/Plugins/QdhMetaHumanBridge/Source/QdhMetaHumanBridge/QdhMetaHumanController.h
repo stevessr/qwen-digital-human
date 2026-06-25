@@ -5,6 +5,7 @@
 #include "QdhWebSocketClient.h"
 #include "QdhAudioPlayer.h"
 #include "QdhLipSyncDriver.h"
+#include "QdhAnimationDriver.h"
 #include "QdhMetaHumanController.generated.h"
 
 /**
@@ -54,6 +55,14 @@ public:
     /** True when audio is currently playing. */
     UPROPERTY(BlueprintReadOnly, Category = "QDH|Status")
     bool bAudioPlaying = false;
+
+    /** True when an animation preset is playing. */
+    UPROPERTY(BlueprintReadOnly, Category = "QDH|Animation")
+    bool bAnimationPlaying = false;
+
+    /** Name of the currently playing animation. */
+    UPROPERTY(BlueprintReadOnly, Category = "QDH|Animation")
+    FString CurrentAnimationName = TEXT("");
 
     /** Latest received text from the LLM (for subtitle display). */
     UPROPERTY(BlueprintReadOnly, Category = "QDH|Text")
@@ -107,6 +116,18 @@ public:
     UFUNCTION(BlueprintImplementableEvent, Category = "QDH|Text")
     void OnTranscriptReceived(const FString& Transcript);
 
+    /** Called when an animation preset starts playing. */
+    UFUNCTION(BlueprintImplementableEvent, Category = "QDH|Animation")
+    void OnAnimationStarted(const FString& AnimationName, const FString& Label);
+
+    /** Called when an animation preset finishes. */
+    UFUNCTION(BlueprintImplementableEvent, Category = "QDH|Animation")
+    void OnAnimationFinished(const FString& AnimationName);
+
+    /** Called when a motion/gesture is triggered. */
+    UFUNCTION(BlueprintImplementableEvent, Category = "QDH|Animation")
+    void OnMotionTriggered(const FString& MotionName, float Intensity);
+
 protected:
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -117,6 +138,7 @@ private:
     TUniquePtr<FQdhWebSocketClient> WsClient;
     TUniquePtr<FQdhAudioPlayer> AudioPlayer;
     TUniquePtr<FQdhLipSyncDriver> LipSyncDriver;
+    TUniquePtr<FQdhAnimationDriver> AnimationDriver;
 
     /** Handlers for WebSocket events. */
     void OnWsJsonMessage(const FString& Json);
@@ -137,4 +159,13 @@ private:
 
     /** Parse a JSON text message (final transcript). */
     void HandleTextMessage(const TSharedPtr<FJsonObject>& Json);
+
+    /** Parse a JSON animation message (preset with keyframes). */
+    void HandleAnimationMessage(const TSharedPtr<FJsonObject>& Json);
+
+    /** Parse a JSON motion/gesture message (simple named motion). */
+    void HandleMotionMessage(const TSharedPtr<FJsonObject>& Json);
+
+    /** Blend animation + lip-sync expressions into final output. */
+    FExpressionFrame BlendExpressionOutput(float DeltaTime);
 };
