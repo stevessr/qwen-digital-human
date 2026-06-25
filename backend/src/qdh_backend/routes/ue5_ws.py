@@ -1,8 +1,8 @@
 """WebSocket endpoint for Unreal Engine 5 (MetaHuman) integration.
 
 UE5 connects to ``/api/ws/ue5`` as a WebSocket client. The backend sends
-expression commands, viseme sequences, and raw PCM audio to drive the
-MetaHuman face rig in real time.
+expression commands, viseme sequences, raw PCM audio, and real-time text
+chunks to drive the MetaHuman face rig and subtitle display.
 """
 
 from __future__ import annotations
@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import struct
 import time
 from dataclasses import dataclass, field
@@ -22,6 +23,44 @@ from ..viseme_extractor import VisemeFrame
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# ---------------------------------------------------------------------------
+# Text sanitization for UE5 display
+# ---------------------------------------------------------------------------
+
+# Patterns to strip from LLM output before sending to UE5
+_UE5_STRIP_PATTERNS: list[re.Pattern] = [
+    re.compile(r'```[\s\S]*?```'),       # code fences
+    re.compile(r'<think>[\s\S]*?</think>'),  # think blocks
+    re.compile(r'<\|im_end\|>'),          # chat template tokens
+    re.compile(r'<\|im_start\|>(?:user|assistant|system)'),  # role markers
+    re.compile(r'<\|.*?\|>'),             # other template tokens
+    re.compile(r'`([^`]+)`'),             # inline code (keep content)
+    re.compile(r'[#*_]{2,}'),            # excess markdown decoration
+]
+
+
+def sanitize_text_for_ue5(text: str) -> str:
+    """Clean LLM output for UE5 subtitle/transcript display.
+
+    Strips markdown, template tokens, and think blocks while preserving
+    readable content. Returns a plain-text string suitable for UI display.
+    """
+    if not text:
+        return ""
+
+    result = text
+    for pattern in _UE5_STRIP_PATTERNS:
+        # For inline code backticks, keep the inner content
+        if pattern.pattern.startswith('`('):
+            result = pattern.sub(r'\1', result)
+        else:
+            result = pattern.sub(' ', result)
+
+    # Collapse multiple spaces/newlines
+    result = re.sub(r'\n{3,}', '\n\n', result)
+    result = re.sub(r' {2,}', ' ', result)
+    return result.strip()
 
 # ---------------------------------------------------------------------------
 # Connection manager
@@ -169,13 +208,20 @@ class Ue5ConnectionManager:
         text: str = "",
         duration_ms: float = 0.0,
     ) -> int:
-        """Send a viseme sequence to UE5 for timeline-driven lip sync."""
+        """Send a viseme sequence to UE5 for timeline-driven lip sync.
+
+        Each frame includes ``start_ms`` and ``end_ms`` for precise timing.
+        """
         viseme_data = []
-        for f in frames:
+        n = len(frames)
+        for i, f in enumerate(frames):
+            # Compute end_ms from next frame or estimate 40ms frame interval
+            end_ms = frames[i + 1].timestamp_ms if i + 1 < n else f.timestamp_ms + 40.0
             viseme_data.append(
                 {
                     "viseme": f.viseme_id,
                     "start_ms": f.timestamp_ms,
+                    "end_ms": end_ms,
                     "mouth_open": f.mouth_open,
                     "jaw_open": f.jaw_open,
                     "lip_round": f.lip_round,
@@ -204,6 +250,39 @@ class Ue5ConnectionManager:
                 "type": "tts_complete",
                 "text": text,
                 "duration_ms": duration_ms,
+            }
+        )
+
+    async def send_text_chunk(self, chunk: str, final: bool = False) -> int:
+        """Send a real-time LLM text chunk to UE5 for subtitle display.
+
+        Each chunk is a delta piece of the ongoing generation. When *final* is
+        ``True``, the chunk is the last one (client may finalize the display).
+        """
+        if not chunk:
+            return 0
+        clean = sanitize_text_for_ue5(chunk)
+        if not clean:
+            return 0
+        return await self.send_json(
+            {
+                "type": "text_chunk",
+                "data": clean,
+                "final": final,
+            }
+        )
+
+    async def send_text(self, text: str) -> int:
+        """Send the complete LLM reply text to UE5 (final transcript).
+
+        The text is sanitized for display (markdown stripped). UE5 can show
+        this as closed captions or a subtitle overlay.
+        """
+        clean = sanitize_text_for_ue5(text)
+        return await self.send_json(
+            {
+                "type": "text",
+                "data": clean,
             }
         )
 
@@ -349,13 +428,18 @@ async def send_reply_to_ue5(
     pcm_bytes: bytes,
     sample_rate: int = 24_000,
 ) -> None:
-    """Send a complete reply (expression + visemes + audio) to UE5.
+    """Send a complete reply (expression + visemes + audio + text) to UE5.
 
     This is the main entry point called from chat/pipeline handlers.
+    The reply text is sent as a final transcript for subtitle display.
     """
     if not manager.is_connected:
         logger.debug("No UE5 client connected — skipping send_reply_to_ue5")
         return
+
+    # 0. Send final cleaned text transcript for subtitles
+    if reply.strip():
+        await manager.send_text(reply)
 
     # 1. Send initial expression (neutral, ready)
     await manager.send_expression(mouth_open=0.0, smile=0.1, blink=0.0)

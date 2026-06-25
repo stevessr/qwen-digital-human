@@ -55,6 +55,14 @@ public:
     UPROPERTY(BlueprintReadOnly, Category = "QDH|Status")
     bool bAudioPlaying = false;
 
+    /** Latest received text from the LLM (for subtitle display). */
+    UPROPERTY(BlueprintReadOnly, Category = "QDH|Text")
+    FString ReceivedText = TEXT("");
+
+    /** Accumulated subtitle text from streaming chunks. */
+    UPROPERTY(BlueprintReadOnly, Category = "QDH|Text")
+    FString SubtitleText = TEXT("");
+
     // ======================================================================
     // Blueprint-callable API
     // ======================================================================
@@ -91,6 +99,14 @@ public:
     UFUNCTION(BlueprintImplementableEvent, Category = "QDH|Connection")
     void OnBackendLog(const FString& Message);
 
+    /** Called when a text chunk arrives from the LLM stream (for subtitles). */
+    UFUNCTION(BlueprintImplementableEvent, Category = "QDH|Text")
+    void OnTextReceived(const FString& Text, bool bFinal);
+
+    /** Called when the final cleaned transcript arrives. */
+    UFUNCTION(BlueprintImplementableEvent, Category = "QDH|Text")
+    void OnTranscriptReceived(const FString& Transcript);
+
 protected:
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -115,4 +131,10 @@ private:
 
     /** Parse a JSON tts_complete message. */
     void HandleTtsCompleteMessage(const TSharedPtr<FJsonObject>& Json);
+
+    /** Parse a JSON text_chunk message (real-time LLM delta). */
+    void HandleTextChunkMessage(const TSharedPtr<FJsonObject>& Json);
+
+    /** Parse a JSON text message (final transcript). */
+    void HandleTextMessage(const TSharedPtr<FJsonObject>& Json);
 };

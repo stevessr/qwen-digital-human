@@ -27,7 +27,7 @@ from ..stream_protocol import (
     split_pcm_frames,
 )
 from ..viseme_extractor import extract_visemes
-from .ue5_ws import send_reply_to_ue5
+from .ue5_ws import manager, send_reply_to_ue5
 
 router = APIRouter()
 
@@ -87,7 +87,16 @@ async def _pipeline_stream(payload: PipelineRequest, request: Request) -> AsyncI
             ):
                 reply_parts.append(chunk)
                 yield encode_text_frame(STREAM_FRAME_DELTA, chunk)
+
+                # Stream text chunks to UE5 for real-time subtitle display
+                if chunk.strip() and manager.is_connected:
+                    await manager.send_text_chunk(chunk)
+
         reply = "".join(reply_parts)
+
+        # Signal text stream end to UE5
+        if reply.strip() and manager.is_connected:
+            await manager.send_text_chunk(reply, final=True)
 
         yield encode_status_frame(STREAM_STAGE_TTS, "Synthesizing local audio")
         pcm, wav_bytes, sample_rate = (

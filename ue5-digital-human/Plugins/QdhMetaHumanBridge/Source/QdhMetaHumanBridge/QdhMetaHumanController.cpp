@@ -146,6 +146,14 @@ void AQdhMetaHumanController::OnWsJsonMessage(const FString& Json)
     {
         HandleTtsCompleteMessage(JsonObject);
     }
+    else if (MessageType == TEXT("text_chunk"))
+    {
+        HandleTextChunkMessage(JsonObject);
+    }
+    else if (MessageType == TEXT("text"))
+    {
+        HandleTextMessage(JsonObject);
+    }
     else if (MessageType == TEXT("ping"))
     {
         // Respond with pong
@@ -243,8 +251,16 @@ void AQdhMetaHumanController::HandleVisemeSequenceMessage(const TSharedPtr<FJson
         Evt.Smile = Item->GetNumberField(TEXT("smile"));
         Evt.Blink = Item->GetNumberField(TEXT("blink"));
 
-        // Estimate end_ms from the next viseme or add a default duration
-        Evt.EndMs = Evt.StartMs + 80.0f;
+        // Use end_ms from backend if available, otherwise estimate 40ms frame
+        double EndMsValue = 0.0;
+        if (Item->TryGetNumberField(TEXT("end_ms"), EndMsValue))
+        {
+            Evt.EndMs = EndMsValue;
+        }
+        else
+        {
+            Evt.EndMs = Evt.StartMs + 40.0f;
+        }
 
         Events.Add(Evt);
     }
@@ -257,9 +273,59 @@ void AQdhMetaHumanController::HandleVisemeSequenceMessage(const TSharedPtr<FJson
 
 void AQdhMetaHumanController::HandleTtsCompleteMessage(const TSharedPtr<FJsonObject>& Json)
 {
+    // Extract text and duration for subtitle timing
+    FString Text = Json->GetStringField(TEXT("text"));
+    float DurationMs = Json->GetNumberField(TEXT("duration_ms"));
+
+    if (!Text.IsEmpty())
+    {
+        ReceivedText = Text;
+        SubtitleText = Text;
+        OnTranscriptReceived(Text);
+    }
+
     // Start audio playback
     if (AudioPlayer)
     {
         AudioPlayer->Play();
     }
+}
+
+void AQdhMetaHumanController::HandleTextChunkMessage(const TSharedPtr<FJsonObject>& Json)
+{
+    FString ChunkText = Json->GetStringField(TEXT("data"));
+    bool bFinal = Json->GetBoolField(TEXT("final"));
+
+    if (ChunkText.IsEmpty()) return;
+
+    // Append to subtitle text
+    SubtitleText += ChunkText.TrimStart();
+
+    // Keep the last received text as the current display
+    ReceivedText = ChunkText;
+
+    // Fire event for blueprints (subtitle display, etc.)
+    OnTextReceived(ChunkText, bFinal);
+
+    if (bFinal)
+    {
+        // Signal the lip-sync driver that text streaming is done
+        // (Blueprint can use OnTextReceived(bFinal=true) to finalize subtitle display)
+        OnTranscriptReceived(SubtitleText);
+    }
+}
+
+void AQdhMetaHumanController::HandleTextMessage(const TSharedPtr<FJsonObject>& Json)
+{
+    FString Text = Json->GetStringField(TEXT("data"));
+
+    if (Text.IsEmpty()) return;
+
+    // Set as the current transcript
+    ReceivedText = Text;
+    SubtitleText = Text;
+
+    // Fire events for blueprints
+    OnTextReceived(Text, /*bFinal=*/true);
+    OnTranscriptReceived(Text);
 }

@@ -19,7 +19,7 @@ from ..stream_protocol import (
 )
 from ..tts_provider import create_tts_provider
 from ..viseme_extractor import extract_visemes
-from .ue5_ws import send_reply_to_ue5
+from .ue5_ws import manager, send_reply_to_ue5
 
 router = APIRouter()
 
@@ -71,12 +71,20 @@ async def _chat_stream(
         ):
             reply_parts.append(chunk)
             yield encode_text_frame(STREAM_FRAME_DELTA, chunk)
-        yield encode_done_frame(reply="".join(reply_parts))
+
+            # Stream text chunks to UE5 for real-time subtitle display
+            if chunk.strip():
+                await manager.send_text_chunk(chunk)
+
+        full_reply = "".join(reply_parts)
+        yield encode_done_frame(reply=full_reply)
+
+        # Signal text stream end to UE5
+        if full_reply.strip() and manager.is_connected:
+            await manager.send_text_chunk(full_reply, final=True)
 
         # After LLM completes, trigger TTS + send to UE5 (fire-and-forget)
-        if payload.tts_enabled:
-            full_reply = "".join(reply_parts)
-            if full_reply.strip():
+        if payload.tts_enabled and full_reply.strip():
                 tts_provider = create_tts_provider(state.settings.tts_provider)
                 tts_result = await tts_provider.synthesize(full_reply)
                 if tts_result.wav_bytes:
@@ -95,6 +103,12 @@ async def _chat_stream(
         if not reply_parts:
             yield encode_text_frame(STREAM_FRAME_DELTA, fallback)
             yield encode_done_frame(reply=fallback)
+            # Send fallback text to UE5
+            if manager.is_connected:
+                await manager.send_text_chunk(fallback, final=True)
             return
         partial = "".join(reply_parts)
         yield encode_done_frame(reply=f"{partial}\n\n（后端回复已中断：{exc}）")
+        # Send partial text to UE5
+        if manager.is_connected:
+            await manager.send_text_chunk(partial, final=True)
