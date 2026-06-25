@@ -1,12 +1,23 @@
 <script setup lang="ts">
-import { onMounted, ref, shallowRef, useTemplateRef } from 'vue'
-import { useEventListener } from '@vueuse/core'
+import { onMounted, ref, useTemplateRef } from 'vue'
+import { useDraggable, useResizeObserver } from '@vueuse/core'
 import DigitalHumanAvatar from './DigitalHumanAvatar.vue'
 
 // Draggable position state
 const stage = useTemplateRef<HTMLElement>('stage')
-const isDragging = shallowRef(false)
+const isDragging = ref(false)
 const position = ref({ left: 18, top: 18 })
+
+useDraggable(stage, {
+  initialValue: { x: 18, y: 18 },
+  onStart: (_position, _event) => {
+    isDragging.value = true
+  },
+  onEnd: (_position, _event) => {
+    isDragging.value = false
+    savePosition()
+  }
+})
 
 const STORAGE_KEY = 'qdh.avatarFloatPosition'
 const VIEWPORT_GAP = 8
@@ -43,45 +54,14 @@ const clampPosition = (left: number, top: number) => {
   }
 }
 
-const handlePointerDown = (event: PointerEvent) => {
-  if (event.button !== 0 || !stage.value) return
-  event.preventDefault()
-
-  isDragging.value = true
-  const startX = event.clientX
-  const startY = event.clientY
-  const startLeft = position.value.left
-  const startTop = position.value.top
-
-  const handleMove = (e: PointerEvent) => {
-    if (!isDragging.value) return
-    const dx = e.clientX - startX
-    const dy = e.clientY - startY
-    const clamped = clampPosition(startLeft + dx, startTop + dy)
-    position.value = clamped
-  }
-
-  const handleUp = () => {
-    if (!isDragging.value) return
-    isDragging.value = false
-    savePosition()
-    document.removeEventListener('pointermove', handleMove)
-    document.removeEventListener('pointerup', handleUp)
-    document.removeEventListener('pointercancel', handleUp)
-  }
-
-  document.addEventListener('pointermove', handleMove)
-  document.addEventListener('pointerup', handleUp)
-  document.addEventListener('pointercancel', handleUp)
-}
-
 onMounted(() => {
   loadPosition()
   const clamped = clampPosition(position.value.left, position.value.top)
   position.value = clamped
 })
 
-useEventListener('resize', () => {
+// Handle responsive resize for useDraggable's external dependency
+useResizeObserver(stage, () => {
   const clamped = clampPosition(position.value.left, position.value.top)
   position.value = clamped
 })
@@ -97,7 +77,6 @@ useEventListener('resize', () => {
         left: `${position.left}px`,
         top: `${position.top}px`,
       }"
-      @pointerdown="handlePointerDown"
     >
       <DigitalHumanAvatar />
     </div>

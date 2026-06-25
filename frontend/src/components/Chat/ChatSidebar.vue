@@ -31,10 +31,19 @@ const activeIntentLabel = shallowRef('待机')
 const asrBaseText = shallowRef('')
 const isHoldingASR = shallowRef(false)
 const shouldSendAfterASRStop = shallowRef(false)
-const renderedMessages = computed(() => chatStore.messages.map(message => ({
-  ...message,
-  html: renderMarkdown(message.content),
-})))
+const renderedMessagesCache = new Map<string, string>()
+const renderedMessages = computed(() => chatStore.messages.map(message => {
+  const cached = renderedMessagesCache.get(message.id)
+  if (cached !== undefined) return { ...message, html: cached }
+  const html = renderMarkdown(message.content)
+  renderedMessagesCache.set(message.id, html)
+  // Limit cache size
+  if (renderedMessagesCache.size > 100) {
+    const firstKey = renderedMessagesCache.keys().next().value
+    if (firstKey) renderedMessagesCache.delete(firstKey)
+  }
+  return { ...message, html }
+}))
 const asrTranscriptPreview = computed(() => [asrFinalText.value, asrInterimText.value]
   .map(text => text.trim())
   .filter(Boolean)

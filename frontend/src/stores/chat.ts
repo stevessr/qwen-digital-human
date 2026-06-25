@@ -1,6 +1,52 @@
-import { ref, reactive, watch } from 'vue'
+import { ref, reactive, watch, onUnmounted } from 'vue'
 import { defineStore } from 'pinia'
 import { nanoid } from 'nanoid'
+
+const DEBOUNCE_DELAY = 300 // 300ms debounce for localStorage saves
+
+interface DebouncedFn<Args extends unknown[]> {
+  (...args: Args): void
+  cancel: () => void
+}
+
+function debounce<Args extends unknown[]>(fn: (...args: Args) => void, delay: number): DebouncedFn<Args> {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const debounced = ((...args: Args) => {
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => {
+      fn(...args)
+      timer = null
+    }, delay)
+  }) as DebouncedFn<Args>
+  debounced.cancel = () => {
+    if (timer) {
+      clearTimeout(timer)
+      timer = null
+    }
+  }
+  return debounced
+}
+
+const debouncedSaveSettings = debounce((settings: PromptSettings) => {
+  localStorage.setItem(CHAT_SETTINGS_STORAGE_KEY, JSON.stringify(settings))
+  localStorage.setItem(PROMPT_STORAGE_KEYS.systemPrompt, settings.system_prompt)
+  localStorage.setItem(PROMPT_STORAGE_KEYS.memory, settings.memory)
+  localStorage.setItem(PROMPT_STORAGE_KEYS.context, settings.context)
+  localStorage.setItem(PROMPT_STORAGE_KEYS.useRagContext, String(settings.use_rag_context))
+  localStorage.setItem(PROMPT_STORAGE_KEYS.ttsMode, String(settings.tts_enabled))
+  localStorage.setItem(PROMPT_STORAGE_KEYS.browserAsrMode, String(settings.browser_asr_mode))
+  localStorage.setItem(PROMPT_STORAGE_KEYS.browserTtsMode, String(settings.browser_tts_enabled))
+  localStorage.setItem(PROMPT_STORAGE_KEYS.collapseThink, String(settings.collapse_think))
+  localStorage.setItem(PROMPT_STORAGE_KEYS.rerankCandidatePool, String(settings.rerank.candidate_pool))
+  localStorage.setItem(PROMPT_STORAGE_KEYS.rerankSimilarityThreshold, String(settings.rerank.similarity_threshold))
+  localStorage.setItem(PROMPT_STORAGE_KEYS.rerankTopK, String(settings.rerank.top_k))
+  localStorage.setItem(PROMPT_STORAGE_KEYS.rerankInstruction, settings.rerank.instruction)
+}, DEBOUNCE_DELAY)
+
+const cleanupDebouncedSave = () => {
+  debouncedSaveSettings.cancel()
+}
+
 import {
   CHAT_SETTINGS_STORAGE_KEY,
   DEFAULT_PROMPT_SETTINGS,
@@ -176,22 +222,21 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   const saveSettings = () => {
-    localStorage.setItem(CHAT_SETTINGS_STORAGE_KEY, JSON.stringify(settings))
-    localStorage.setItem(PROMPT_STORAGE_KEYS.systemPrompt, settings.system_prompt)
-    localStorage.setItem(PROMPT_STORAGE_KEYS.memory, settings.memory)
-    localStorage.setItem(PROMPT_STORAGE_KEYS.context, settings.context)
-    localStorage.setItem(PROMPT_STORAGE_KEYS.useRagContext, String(settings.use_rag_context))
-    localStorage.setItem(PROMPT_STORAGE_KEYS.ttsMode, String(settings.tts_enabled))
-    localStorage.setItem(PROMPT_STORAGE_KEYS.browserAsrMode, String(settings.browser_asr_mode))
-    localStorage.setItem(PROMPT_STORAGE_KEYS.browserTtsMode, String(settings.browser_tts_enabled))
-    localStorage.setItem(PROMPT_STORAGE_KEYS.collapseThink, String(settings.collapse_think))
-    localStorage.setItem(PROMPT_STORAGE_KEYS.rerankCandidatePool, String(settings.rerank.candidate_pool))
-    localStorage.setItem(PROMPT_STORAGE_KEYS.rerankSimilarityThreshold, String(settings.rerank.similarity_threshold))
-    localStorage.setItem(PROMPT_STORAGE_KEYS.rerankTopK, String(settings.rerank.top_k))
-    localStorage.setItem(PROMPT_STORAGE_KEYS.rerankInstruction, settings.rerank.instruction)
+    debouncedSaveSettings(settings)
   }
 
-  watch(settings, saveSettings, { deep: true })
+  const debouncedSettingsCleanup = watch(
+    settings,
+    () => {
+      debouncedSaveSettings(settings)
+    },
+    { deep: true }
+  )
+
+  onUnmounted(() => {
+    cleanupDebouncedSave()
+    debouncedSettingsCleanup()
+  })
 
   return {
     messages,

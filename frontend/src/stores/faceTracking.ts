@@ -1,4 +1,4 @@
-import { reactive } from 'vue'
+import { reactive, watch, onUnmounted } from 'vue'
 import { defineStore } from 'pinia'
 import {
   DEFAULT_OPENCV_SETTINGS,
@@ -6,11 +6,59 @@ import {
   OPENCV_STORAGE_KEYS,
 } from '@/constants/config'
 import type { FaceTrackingState, FaceCalibration } from '@/types/avatar'
+import { clampNumber } from '@/utils/math'
 
-const clampNumber = (value: number, min: number, max: number, fallback: number): number => {
-  if (!Number.isFinite(value)) return fallback
-  return Math.min(max, Math.max(min, value))
+const DEBOUNCE_DELAY = 300
+
+interface DebouncedFn<Args extends unknown[]> {
+  (...args: Args): void
+  cancel: () => void
 }
+
+function debounce<Args extends unknown[]>(fn: (...args: Args) => void, delay: number): DebouncedFn<Args> {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const debounced = ((...args: Args) => {
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => {
+      fn(...args)
+      timer = null
+    }, delay)
+  }) as DebouncedFn<Args>
+  debounced.cancel = () => {
+    if (timer) {
+      clearTimeout(timer)
+      timer = null
+    }
+  }
+  return debounced
+}
+
+const debouncedSaveToStorage = debounce((s: FaceTrackingState) => {
+  localStorage.setItem(OPENCV_STORAGE_KEYS.enabled, String(s.enabled))
+  localStorage.setItem(OPENCV_STORAGE_KEYS.autoStart, String(s.autoStart))
+  localStorage.setItem(OPENCV_STORAGE_KEYS.mirror, String(s.mirror))
+  localStorage.setItem(OPENCV_STORAGE_KEYS.smooth, String(s.smooth))
+  localStorage.setItem(OPENCV_STORAGE_KEYS.yawGain, String(s.yawGain))
+  localStorage.setItem(OPENCV_STORAGE_KEYS.pitchGain, String(s.pitchGain))
+  localStorage.setItem(OPENCV_STORAGE_KEYS.blend, String(s.blend))
+
+  localStorage.setItem(LEGACY_OPENCV_STORAGE_KEYS.enabled, String(s.enabled))
+  localStorage.setItem(LEGACY_OPENCV_STORAGE_KEYS.autoStart, String(s.autoStart))
+  localStorage.setItem(LEGACY_OPENCV_STORAGE_KEYS.mirror, String(s.mirror))
+  localStorage.setItem(LEGACY_OPENCV_STORAGE_KEYS.smooth, String(s.smooth))
+  localStorage.setItem(LEGACY_OPENCV_STORAGE_KEYS.yawGain, String(s.yawGain))
+  localStorage.setItem(LEGACY_OPENCV_STORAGE_KEYS.pitchGain, String(s.pitchGain))
+  localStorage.setItem(LEGACY_OPENCV_STORAGE_KEYS.blend, String(s.blend))
+
+  if (s.calibration) {
+    const calibration = JSON.stringify(s.calibration)
+    localStorage.setItem(OPENCV_STORAGE_KEYS.calibration, calibration)
+    localStorage.setItem(LEGACY_OPENCV_STORAGE_KEYS.calibration, calibration)
+  } else {
+    localStorage.removeItem(OPENCV_STORAGE_KEYS.calibration)
+    localStorage.removeItem(LEGACY_OPENCV_STORAGE_KEYS.calibration)
+  }
+}, DEBOUNCE_DELAY)
 
 const loadBooleanSetting = (key: string, legacyKey: string, fallback: boolean): boolean => {
   const raw = localStorage.getItem(key) ?? localStorage.getItem(legacyKey)
@@ -135,31 +183,17 @@ export const useFaceTrackingStore = defineStore('faceTracking', () => {
   }
 
   const saveToStorage = () => {
-    localStorage.setItem(OPENCV_STORAGE_KEYS.enabled, String(state.enabled))
-    localStorage.setItem(OPENCV_STORAGE_KEYS.autoStart, String(state.autoStart))
-    localStorage.setItem(OPENCV_STORAGE_KEYS.mirror, String(state.mirror))
-    localStorage.setItem(OPENCV_STORAGE_KEYS.smooth, String(state.smooth))
-    localStorage.setItem(OPENCV_STORAGE_KEYS.yawGain, String(state.yawGain))
-    localStorage.setItem(OPENCV_STORAGE_KEYS.pitchGain, String(state.pitchGain))
-    localStorage.setItem(OPENCV_STORAGE_KEYS.blend, String(state.blend))
-
-    localStorage.setItem(LEGACY_OPENCV_STORAGE_KEYS.enabled, String(state.enabled))
-    localStorage.setItem(LEGACY_OPENCV_STORAGE_KEYS.autoStart, String(state.autoStart))
-    localStorage.setItem(LEGACY_OPENCV_STORAGE_KEYS.mirror, String(state.mirror))
-    localStorage.setItem(LEGACY_OPENCV_STORAGE_KEYS.smooth, String(state.smooth))
-    localStorage.setItem(LEGACY_OPENCV_STORAGE_KEYS.yawGain, String(state.yawGain))
-    localStorage.setItem(LEGACY_OPENCV_STORAGE_KEYS.pitchGain, String(state.pitchGain))
-    localStorage.setItem(LEGACY_OPENCV_STORAGE_KEYS.blend, String(state.blend))
-
-    if (state.calibration) {
-      const calibration = JSON.stringify(state.calibration)
-      localStorage.setItem(OPENCV_STORAGE_KEYS.calibration, calibration)
-      localStorage.setItem(LEGACY_OPENCV_STORAGE_KEYS.calibration, calibration)
-    } else {
-      localStorage.removeItem(OPENCV_STORAGE_KEYS.calibration)
-      localStorage.removeItem(LEGACY_OPENCV_STORAGE_KEYS.calibration)
-    }
+    debouncedSaveToStorage(state)
   }
+
+  const saveWatcher = watch(state, () => {
+    debouncedSaveToStorage(state)
+  }, { deep: true })
+
+  onUnmounted(() => {
+    debouncedSaveToStorage.cancel()
+    saveWatcher()
+  })
 
   return {
     state,

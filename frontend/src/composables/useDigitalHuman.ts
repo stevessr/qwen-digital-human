@@ -1,10 +1,6 @@
 import { computed, onMounted, onUnmounted, readonly, shallowRef, type Ref } from 'vue'
 import type { AvatarState, FaceTrackingState } from '@/types/avatar'
-
-const clampNumber = (value: number, min: number, max: number, fallback: number): number => {
-  if (!Number.isFinite(value)) return fallback
-  return Math.min(max, Math.max(min, value))
-}
+import { clampNumber } from '@/utils/math'
 
 const lerpNumber = (from: number, to: number, amount: number): number => {
   const t = clampNumber(amount, 0, 1, 0)

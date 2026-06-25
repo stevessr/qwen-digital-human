@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, toRef } from 'vue'
+import { computed, ref, toRef, onUnmounted } from 'vue'
 import { useDigitalHuman } from '@/composables/useDigitalHuman'
 import { useAvatarStore } from '@/stores/avatar'
 import { useFaceTrackingStore } from '@/stores/faceTracking'
@@ -38,6 +38,11 @@ const storageHandler = (e: StorageEvent) => {
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', storageHandler)
 }
+
+// Cleanup storage event listener on unmount
+onUnmounted(() => {
+  window.removeEventListener('storage', storageHandler)
+})
 
 const PERSONAS: Record<DigitalHumanPersonaKey, PersonaSpec> = {
   guide: {
@@ -121,7 +126,7 @@ const auraStyle = computed(() => ({
           environment-image="neutral"
           shadow-intensity="0.85"
           exposure="0.95"
-          loading="eager"
+          :loading="ue5Mode ? 'lazy' : 'eager'"
           reveal="auto"
         />
       </div>

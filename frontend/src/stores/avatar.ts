@@ -51,12 +51,24 @@ export const useAvatarStore = defineStore('avatar', () => {
   })
 
   const state = computed<AvatarState>(() => ({
-    expression: { ...expression },
-    posture: { ...posture },
+    expression: {
+      mouth_open: expression.mouth_open,
+      smile: expression.smile,
+      blink: expression.blink,
+    },
+    posture: {
+      head_pitch: posture.head_pitch,
+      head_yaw: posture.head_yaw,
+      head_roll: posture.head_roll,
+    },
     waveform: waveform.value,
     startTime: startTime.value,
     persona: persona.value,
-    motion: { ...motion },
+    motion: {
+      name: motion.name,
+      startedAt: motion.startedAt,
+      durationMs: motion.durationMs,
+    },
   }))
 
   const updateExpression = (partial: Partial<AvatarExpression>) => {
