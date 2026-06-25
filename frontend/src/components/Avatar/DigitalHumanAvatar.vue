@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, toRef } from 'vue'
+import { computed, ref, toRef } from 'vue'
 import { useDigitalHuman } from '@/composables/useDigitalHuman'
 import { useAvatarStore } from '@/stores/avatar'
 import { useFaceTrackingStore } from '@/stores/faceTracking'
@@ -19,6 +19,25 @@ const { signals } = useDigitalHuman(
   computed(() => avatarStore.state),
   toRef(() => faceTrackingStore.state)
 )
+
+// UE5 Pixel Streaming mode (from localStorage)
+const ue5Mode = ref(localStorage.getItem('qdh.ue5Mode') !== 'disabled')
+const ue5Connected = ref(false)
+const ue5StreamUrl = ref(localStorage.getItem('qdh.ue5StreamUrl') || 'http://localhost:8888')
+
+// Watch for UE5 connection status changes via localStorage
+const storageHandler = (e: StorageEvent) => {
+  if (e.key === 'qdh.ue5Mode') {
+    ue5Mode.value = e.newValue !== 'disabled'
+  }
+  if (e.key === 'qdh.ue5Connected') {
+    ue5Connected.value = e.newValue === 'true'
+  }
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', storageHandler)
+}
 
 const PERSONAS: Record<DigitalHumanPersonaKey, PersonaSpec> = {
   guide: {
@@ -64,43 +83,62 @@ const auraStyle = computed(() => ({
 </script>
 
 <template>
-  <div :class="rootClasses" aria-label="在线 3D 数字人形象">
-    <div class="aura" :style="auraStyle" />
-    <div class="hologram-ring ring-one" />
-    <div class="hologram-ring ring-two" />
-
-    <div class="model-frame" :style="modelFrameStyle">
-      <model-viewer
-        class="model-viewer"
-        :src="personaSpec.modelUrl"
-        :alt="`${personaSpec.label} 3D 数字人模型`"
-        :camera-orbit="personaSpec.cameraOrbit"
-        :field-of-view="personaSpec.fieldOfView"
-        camera-controls
-        auto-rotate
-        autoplay
-        touch-action="pan-y"
-        interaction-prompt="none"
-        environment-image="neutral"
-        shadow-intensity="0.85"
-        exposure="0.95"
-        loading="eager"
-        reveal="auto"
+  <div :class="rootClasses" aria-label="数字人形象">
+    <!-- UE5 Pixel Streaming embed (when enabled) -->
+    <div v-if="ue5Mode" class="ue5-stream-wrapper">
+      <iframe
+        class="ue5-stream-iframe"
+        :src="ue5StreamUrl"
+        allow="autoplay; microphone; camera"
+        title="UE5 MetaHuman 数字人"
+        @load="ue5Connected = true"
+        @error="ue5Connected = false"
       />
+      <div class="ue5-status">
+        <span class="status-dot" :class="{ connected: ue5Connected }" />
+        {{ ue5Connected ? 'UE5 MetaHuman' : 'UE5 连接中…' }}
+      </div>
     </div>
 
-    <div class="speech-meter" aria-hidden="true">
-      <span
-        v-for="index in 12"
-        :key="index"
-        :style="{ transform: `scaleY(${0.35 + signals.energy * 1.1 + ((index % 3) * 0.09)})` }"
-      />
-    </div>
+    <!-- Fallback: online 3D model viewer -->
+    <template v-else>
+      <div class="aura" :style="auraStyle" />
+      <div class="hologram-ring ring-one" />
+      <div class="hologram-ring ring-two" />
 
-    <div class="status-panel">
-      <span class="status-dot" />
-      {{ personaSpec.label }} · 在线 3D 模型 / 口型 / 姿态
-    </div>
+      <div class="model-frame" :style="modelFrameStyle">
+        <model-viewer
+          class="model-viewer"
+          :src="personaSpec.modelUrl"
+          :alt="`${personaSpec.label} 3D 数字人模型`"
+          :camera-orbit="personaSpec.cameraOrbit"
+          :field-of-view="personaSpec.fieldOfView"
+          camera-controls
+          auto-rotate
+          autoplay
+          touch-action="pan-y"
+          interaction-prompt="none"
+          environment-image="neutral"
+          shadow-intensity="0.85"
+          exposure="0.95"
+          loading="eager"
+          reveal="auto"
+        />
+      </div>
+
+      <div class="speech-meter" aria-hidden="true">
+        <span
+          v-for="index in 12"
+          :key="index"
+          :style="{ transform: `scaleY(${0.35 + signals.energy * 1.1 + ((index % 3) * 0.09)})` }"
+        />
+      </div>
+
+      <div class="status-panel">
+        <span class="status-dot" />
+        {{ personaSpec.label }} · 在线 3D 模型 / 口型 / 姿态
+      </div>
+    </template>
   </div>
 </template>
 
@@ -208,6 +246,49 @@ const auraStyle = computed(() => ({
   color: #bfeaff;
   font-size: 0.74rem;
   backdrop-filter: blur(8px);
+}
+
+/* UE5 Pixel Streaming wrapper */
+.ue5-stream-wrapper {
+  position: absolute;
+  inset: 0;
+  border-radius: 24px;
+  overflow: hidden;
+  background: #000;
+}
+
+.ue5-stream-iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #000;
+}
+
+.ue5-status {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 14px;
+  border-radius: 20px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #8ac2ff;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.ue5-status .status-dot {
+  background: #8ac2ff;
+  box-shadow: none;
+}
+
+.ue5-status .status-dot.connected {
+  background: #34d399;
+  box-shadow: 0 0 14px #34d399;
 }
 
 .status-dot {

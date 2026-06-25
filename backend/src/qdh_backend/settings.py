@@ -69,6 +69,13 @@ class Settings:
     llm_timeout_seconds: float
     ollama_prefer_cloud: bool = True
     ollama_cloud_models: tuple[str, ...] = DEFAULT_OLLAMA_CLOUD_MODELS
+    tts_provider: str = "edge-tts"
+    ue5_ws_url: str = ""
+
+    def __post_init__(self) -> None:
+        self.tts_provider = self.tts_provider.strip().lower()
+        if self.tts_provider not in {"edge-tts", "edge_tts", "edge", "silence"}:
+            self.tts_provider = "edge-tts"
 
 
 def load_settings() -> Settings:
@@ -109,4 +116,6 @@ def load_settings() -> Settings:
         llm_timeout_seconds=timeout,
         ollama_prefer_cloud=ollama_prefer_cloud,
         ollama_cloud_models=ollama_cloud_models,
+        tts_provider=os.getenv("TTS_PROVIDER", "edge-tts"),
+        ue5_ws_url=os.getenv("UE5_WS_URL", ""),
     )

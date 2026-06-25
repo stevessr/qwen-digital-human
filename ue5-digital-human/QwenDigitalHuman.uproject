@@ -1,0 +1,22 @@
+{
+  "FileVersion": 3,
+  "EngineAssociation": "5.4",
+  "Category": "DigitalHuman",
+  "Description": "Qwen Digital Human MetaHuman - Pixel Streaming Digital Human",
+  "Modules": [
+    {
+      "Name": "QwenDigitalHuman",
+      "Type": "Runtime",
+      "LoadingPhase": "Default",
+      "AdditionalDependencies": [
+        "QdhMetaHumanBridge"
+      ]
+    }
+  ],
+  "Plugins": [
+    { "Name": "PixelStreaming", "Enabled": true },
+    { "Name": "PixelStreamingPlayer", "Enabled": true },
+    { "Name": "MetaHuman", "Enabled": true },
+    { "Name": "WebSockets", "Enabled": true }
+  ]
+}

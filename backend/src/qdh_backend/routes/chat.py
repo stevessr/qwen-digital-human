@@ -17,6 +17,9 @@ from ..stream_protocol import (
     encode_status_frame,
     encode_text_frame,
 )
+from ..tts_provider import create_tts_provider
+from ..viseme_extractor import extract_visemes
+from .ue5_ws import send_reply_to_ue5
 
 router = APIRouter()
 
@@ -43,6 +46,7 @@ async def chat_handler(payload: ChatRequest, request: Request):
         )
     except Exception as exc:  # noqa: BLE001 - 兼容旧接口，错误作为文本回传
         reply = build_fallback_reply(payload.message, context, exc)
+
     return ChatResponse(reply=reply)
 
 
@@ -68,6 +72,24 @@ async def _chat_stream(
             reply_parts.append(chunk)
             yield encode_text_frame(STREAM_FRAME_DELTA, chunk)
         yield encode_done_frame(reply="".join(reply_parts))
+
+        # After LLM completes, trigger TTS + send to UE5 (fire-and-forget)
+        if payload.tts_enabled:
+            full_reply = "".join(reply_parts)
+            if full_reply.strip():
+                tts_provider = create_tts_provider(state.settings.tts_provider)
+                tts_result = await tts_provider.synthesize(full_reply)
+                if tts_result.wav_bytes:
+                    viseme_frames = extract_visemes(
+                        tts_result.wav_bytes,
+                        tts_result.sample_rate,
+                    )
+                    await send_reply_to_ue5(
+                        reply=full_reply,
+                        viseme_frames=viseme_frames,
+                        pcm_bytes=tts_result.wav_bytes,
+                        sample_rate=tts_result.sample_rate,
+                    )
     except Exception as exc:  # noqa: BLE001
         fallback = build_fallback_reply(payload.message, context, exc)
         if not reply_parts:

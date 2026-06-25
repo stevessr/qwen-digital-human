@@ -1,0 +1,25 @@
+{
+  "FileVersion": 3,
+  "VersionName": "1.0",
+  "Version": 1,
+  "FriendlyName": "Qdh MetaHuman Bridge",
+  "Description": "WebSocket client, audio player, and lip-sync driver for Qwen Digital Human MetaHuman integration.",
+  "Category": "Digital Human",
+  "CreatedBy": "QDH",
+  "CreatedByURL": "",
+  "DocsURL": "",
+  "MarketplaceURL": "",
+  "SupportURL": "",
+  "CanContainContent": true,
+  "IsBetaVersion": false,
+  "IsExperimentalVersion": false,
+  "Installed": false,
+  "Modules": [
+    {
+      "Name": "QdhMetaHumanBridge",
+      "Type": "Runtime",
+      "LoadingPhase": "Default",
+      "PlatformAllowList": ["Win64", "Linux", "Mac"]
+    }
+  ]
+}

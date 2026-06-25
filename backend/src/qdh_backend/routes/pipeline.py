@@ -26,6 +26,8 @@ from ..stream_protocol import (
     encode_text_frame,
     split_pcm_frames,
 )
+from ..viseme_extractor import extract_visemes
+from .ue5_ws import send_reply_to_ue5
 
 router = APIRouter()
 
@@ -102,6 +104,16 @@ async def _pipeline_stream(payload: PipelineRequest, request: Request) -> AsyncI
             render_frame=render_frame,
             audio_bytes=wav_bytes,
         )
+
+        # Send to UE5 if connected (fire-and-forget, after stream closed)
+        if reply.strip() and payload.tts_enabled:
+            viseme_frames = extract_visemes(wav_bytes, sample_rate)
+            await send_reply_to_ue5(
+                reply=reply,
+                viseme_frames=viseme_frames,
+                pcm_bytes=pcm,
+                sample_rate=sample_rate,
+            )
     except Exception as exc:  # noqa: BLE001
         yield encode_error_frame(str(exc))
 

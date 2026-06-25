@@ -1876,6 +1876,119 @@ function startWaveformLoop() {
     requestAnimationFrame(frame);
 }
 
+// ============================================================
+// UE5 Pixel Streaming Integration
+// ============================================================
+
+const ue5State = {
+    connected: false,
+    streamActive: false,
+    signallingUrl: 'ws://127.0.0.1:8888',
+    playerUrl: 'http://localhost:8888',
+    iframe: null,
+    statusText: null,
+    overlay: null,
+    autoConnect: true,
+    reconnectTimer: null,
+    pixelStreamingMode: localStorage.getItem('qdh.ue5Mode') !== 'disabled',
+    fallbackAvatar: true, // show model-viewer when UE5 is not connected
+};
+
+function initUe5StreamElements() {
+    ue5State.iframe = document.getElementById('ue5-stream-container');
+    ue5State.statusText = document.getElementById('ue5-status-text');
+    ue5State.overlay = document.getElementById('ue5-connection-overlay');
+}
+
+function switchToUe5Stream() {
+    const container = ue5State.iframe;
+    const fallback = document.getElementById('avatar-model-frame');
+    const aura = document.getElementById('avatar-aura');
+    const ring = document.getElementById('avatar-ring');
+    const waveform = document.getElementById('waveform-overlay');
+    if (container) container.style.display = 'block';
+    if (fallback) fallback.style.display = 'none';
+    if (aura) aura.style.display = 'none';
+    if (ring) ring.style.display = 'none';
+    if (waveform) waveform.style.display = 'none';
+    ue5State.streamActive = true;
+    ue5State.fallbackAvatar = false;
+}
+
+function switchToFallbackAvatar() {
+    const container = ue5State.iframe;
+    const fallback = document.getElementById('avatar-model-frame');
+    const aura = document.getElementById('avatar-aura');
+    const ring = document.getElementById('avatar-ring');
+    const waveform = document.getElementById('waveform-overlay');
+    if (container) container.style.display = 'none';
+    if (fallback) fallback.style.display = 'block';
+    if (aura) aura.style.display = 'block';
+    if (ring) ring.style.display = 'block';
+    if (waveform) waveform.style.display = 'block';
+    ue5State.streamActive = false;
+    ue5State.fallbackAvatar = true;
+}
+
+function updateUe5ConnectionStatus(connected, message) {
+    ue5State.connected = connected;
+    if (ue5State.statusText) {
+        ue5State.statusText.textContent = message || (connected ? 'UE5 已连接' : 'UE5 未连接');
+    }
+    if (ue5State.overlay) {
+        ue5State.overlay.style.color = connected ? '#34d399' : '#8ac2ff';
+    }
+}
+
+function startUe5Stream(pixelStreamingUrl) {
+    if (!ue5State.pixelStreamingMode) return;
+    const iframeEl = document.getElementById('ue5-stream-iframe');
+    if (!iframeEl) return;
+
+    const url = pixelStreamingUrl || ue5State.playerUrl;
+    if (iframeEl.src !== url) {
+        iframeEl.src = url;
+    }
+
+    updateUe5ConnectionStatus(true, '正在连接 Pixel Streaming…');
+    switchToUe5Stream();
+
+    // Auto-detect connection: listen for iframe load
+    iframeEl.addEventListener('load', () => {
+        updateUe5ConnectionStatus(true, 'UE5 流已连接');
+    }, { once: true });
+
+    // Fallback: if connection fails within 10 seconds, show fallback
+    setTimeout(() => {
+        if (!ue5State.connected && ue5State.fallbackAvatar) {
+            switchToFallbackAvatar();
+            updateUe5ConnectionStatus(false, 'UE5 连接超时');
+        }
+    }, 10000);
+}
+
+function stopUe5Stream() {
+    const iframeEl = document.getElementById('ue5-stream-iframe');
+    if (iframeEl) {
+        iframeEl.src = '';
+    }
+    updateUe5ConnectionStatus(false, 'UE5 已断开');
+    if (ue5State.fallbackAvatar) {
+        switchToFallbackAvatar();
+    }
+}
+
+function toggleUe5Mode(enabled) {
+    ue5State.pixelStreamingMode = enabled;
+    localStorage.setItem('qdh.ue5Mode', enabled ? 'enabled' : 'disabled');
+    if (enabled) {
+        startUe5Stream();
+    } else {
+        stopUe5Stream();
+        switchToFallbackAvatar();
+    }
+}
+
 async function initWebGPU() {
     const canvas = document.getElementById('webgpu-canvas');
     if (!navigator.gpu) {
@@ -2579,6 +2692,13 @@ function drawWaveform() {
 // ============================================================
 document.addEventListener('DOMContentLoaded', () => {
     startWaveformLoop();
+    initUe5StreamElements();
+
+    // Auto-start Pixel Streaming if enabled
+    if (ue5State.pixelStreamingMode) {
+        startUe5Stream();
+    }
+
     void initAvatarRenderer();
 
     const chatHistory = document.getElementById('chat-history');

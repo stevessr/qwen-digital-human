@@ -7,7 +7,8 @@ from fastapi.staticfiles import StaticFiles
 from .llm import LlmService
 from .model_manager import ModelManager
 from .rag import RagService
-from .routes import asr_ws, chat, context, map, models, pipeline, tts
+from .routes import asr_ws, chat, context, map, models, pipeline, tts, ue5_ws
+from .routes.ue5_ws import start_heartbeat, stop_heartbeat
 from .settings import Settings, load_settings
 from .state import AppState
 
@@ -29,6 +30,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(map.router)
     app.include_router(models.router)
     app.include_router(asr_ws.router)
+    app.include_router(ue5_ws.router)
+
+    @app.on_event("startup")
+    async def on_startup() -> None:
+        start_heartbeat()
+
+    @app.on_event("shutdown")
+    async def on_shutdown() -> None:
+        stop_heartbeat()
 
     @app.get("/health")
     async def health() -> dict[str, str]:
